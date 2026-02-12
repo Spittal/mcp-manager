@@ -1,6 +1,19 @@
 <script setup lang="ts">
+import { onMounted } from 'vue';
 import ServerList from './components/ServerList.vue';
 import StatusBar from './components/StatusBar.vue';
+import { useServersStore } from '@/stores/servers';
+import { useEvents } from '@/composables/useEvents';
+import { useServerLogs } from '@/composables/useServerLogs';
+
+const serversStore = useServersStore();
+
+useEvents();
+useServerLogs();
+
+onMounted(() => {
+  serversStore.loadServers();
+});
 </script>
 
 <template>
