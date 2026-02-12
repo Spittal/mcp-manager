@@ -5,7 +5,7 @@ mod persistence;
 mod state;
 
 use mcp::client::McpConnections;
-use state::AppState;
+use state::{AppState, OAuthStore};
 use std::sync::Mutex;
 use tauri::Manager;
 use tracing::info;
@@ -18,6 +18,7 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_http::init())
+        .plugin(tauri_plugin_opener::init())
         .setup(|app| {
             // Load persisted server configs
             let servers = persistence::load_servers(app.handle());
@@ -27,6 +28,7 @@ pub fn run() {
             app_state.servers = servers;
             app.manage(Mutex::new(app_state));
             app.manage(tokio::sync::Mutex::new(McpConnections::new()));
+            app.manage(tokio::sync::Mutex::new(OAuthStore::new()));
 
             // Start the MCP proxy server
             let proxy_state = mcp::proxy::ProxyState::new();
@@ -53,6 +55,8 @@ pub fn run() {
             commands::tools::list_all_tools,
             commands::tools::call_tool,
             commands::proxy::get_proxy_status,
+            commands::oauth::start_oauth_flow,
+            commands::oauth::clear_oauth_tokens,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

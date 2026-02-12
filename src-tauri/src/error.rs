@@ -17,6 +17,12 @@ pub enum AppError {
     #[error("Transport error: {0}")]
     Transport(String),
 
+    #[error("Authentication required: {0}")]
+    AuthRequired(String),
+
+    #[error("OAuth error: {0}")]
+    OAuth(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 

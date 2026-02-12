@@ -23,6 +23,8 @@ pub struct HttpTransport {
     headers: HashMap<String, String>,
     /// Session ID returned by the server, sent on subsequent requests.
     session_id: Arc<Mutex<Option<String>>>,
+    /// OAuth access token, injected as Bearer header when present.
+    access_token: Arc<Mutex<Option<String>>>,
 }
 
 impl HttpTransport {
@@ -35,13 +37,15 @@ impl HttpTransport {
     pub async fn connect(
         url: &str,
         headers: HashMap<String, String>,
+        access_token: Option<String>,
     ) -> Result<Self, AppError> {
         let client = Client::new();
+        let token = Arc::new(Mutex::new(access_token));
 
         // Heuristic: if the URL ends with /sse, use legacy SSE mode
         if url.ends_with("/sse") {
             info!("URL ends with /sse, using legacy SSE transport for {url}");
-            return Self::connect_legacy_sse(url, headers, client).await;
+            return Self::connect_legacy_sse(url, headers, client, token).await;
         }
 
         // Default: streamable HTTP — just store the URL, no probing needed.
@@ -55,7 +59,14 @@ impl HttpTransport {
             post_url: url.to_string(),
             headers,
             session_id: Arc::new(Mutex::new(None)),
+            access_token: token,
         })
+    }
+
+    /// Update the OAuth access token (used after token refresh or initial auth).
+    pub async fn set_access_token(&self, token: Option<String>) {
+        let mut t = self.access_token.lock().await;
+        *t = token;
     }
 
     /// Legacy SSE connection: GET the URL, parse the `endpoint` event, then POST to that URL.
@@ -63,6 +74,7 @@ impl HttpTransport {
         url: &str,
         headers: HashMap<String, String>,
         client: Client,
+        access_token: Arc<Mutex<Option<String>>>,
     ) -> Result<Self, AppError> {
         let mut req = client.get(url).header("Accept", "text/event-stream");
 
@@ -70,10 +82,22 @@ impl HttpTransport {
             req = req.header(k.as_str(), v.as_str());
         }
 
+        // Inject Bearer token if available
+        {
+            let tok = access_token.lock().await;
+            if let Some(ref token) = *tok {
+                req = req.header("Authorization", format!("Bearer {token}"));
+            }
+        }
+
         let response = req
             .send()
             .await
             .map_err(|e| AppError::Transport(format!("SSE GET request failed: {e}")))?;
+
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(AppError::AuthRequired(url.to_string()));
+        }
 
         if !response.status().is_success() {
             return Err(AppError::Transport(format!(
@@ -104,6 +128,7 @@ impl HttpTransport {
             post_url,
             headers,
             session_id: Arc::new(Mutex::new(session_id)),
+            access_token,
         })
     }
 
@@ -137,6 +162,14 @@ impl HttpTransport {
             req = req.header(k.as_str(), v.as_str());
         }
 
+        // Inject Bearer token if available (after custom headers so OAuth takes precedence)
+        {
+            let tok = self.access_token.lock().await;
+            if let Some(ref token) = *tok {
+                req = req.header("Authorization", format!("Bearer {token}"));
+            }
+        }
+
         // Include session ID if we have one
         {
             let sid = self.session_id.lock().await;
@@ -159,6 +192,11 @@ impl HttpTransport {
         {
             let mut sid = self.session_id.lock().await;
             *sid = Some(new_sid.to_string());
+        }
+
+        // Detect 401 before the generic non-2xx check
+        if response.status() == reqwest::StatusCode::UNAUTHORIZED {
+            return Err(AppError::AuthRequired(self.post_url.clone()));
         }
 
         if !response.status().is_success() {

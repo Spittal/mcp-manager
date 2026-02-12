@@ -9,6 +9,7 @@
     "shell:allow-kill",
     "shell:allow-stdin-write",
     "store:default",
-    "http:default"
+    "http:default",
+    "opener:default"
   ]
 }

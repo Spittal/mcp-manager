@@ -50,8 +50,9 @@ impl McpClient {
     pub async fn connect_http(
         url: &str,
         headers: HashMap<String, String>,
+        access_token: Option<String>,
     ) -> Result<Self, AppError> {
-        let transport = HttpTransport::connect(url, headers).await?;
+        let transport = HttpTransport::connect(url, headers, access_token).await?;
 
         let mut client = Self {
             transport: Transport::Http(transport),
