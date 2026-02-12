@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, onMounted } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useServersStore } from '@/stores/servers';
 import type { ServerTransport } from '@/types/server';
 
+const route = useRoute();
 const router = useRouter();
 const store = useServersStore();
+
+const serverId = route.params.id as string;
 
 const name = ref('');
 const transport = ref<ServerTransport>('stdio');
@@ -13,6 +16,28 @@ const command = ref('');
 const args = ref('');
 const url = ref('');
 const headers = ref('');
+const showDeleteConfirm = ref(false);
+
+onMounted(async () => {
+  if (!store.servers.length) {
+    await store.loadServers();
+  }
+  const server = store.servers.find(s => s.id === serverId);
+  if (!server) {
+    router.push('/');
+    return;
+  }
+  name.value = server.name;
+  transport.value = server.transport;
+  command.value = server.command ?? '';
+  args.value = server.args?.join(' ') ?? '';
+  url.value = server.url ?? '';
+  if (server.headers) {
+    headers.value = Object.entries(server.headers)
+      .map(([k, v]) => `${k}: ${v}`)
+      .join('\n');
+  }
+});
 
 function parseHeaders(): Record<string, string> {
   const parsed: Record<string, string> = {};
@@ -25,24 +50,32 @@ function parseHeaders(): Record<string, string> {
   return parsed;
 }
 
-async function addServer() {
+async function saveServer() {
   if (!name.value.trim()) return;
 
-  store.addServer({
-    name: name.value.trim(),
-    transport: transport.value,
-    enabled: true,
-    ...(transport.value === 'stdio'
-      ? {
-          command: command.value.trim(),
-          args: args.value.split(/\s+/).filter(Boolean),
-        }
-      : {
-          url: url.value.trim(),
-          headers: parseHeaders(),
-        }),
-  });
+  try {
+    await store.updateServer(serverId, {
+      name: name.value.trim(),
+      transport: transport.value,
+      enabled: true,
+      ...(transport.value === 'stdio'
+        ? {
+            command: command.value.trim(),
+            args: args.value.split(/\s+/).filter(Boolean),
+          }
+        : {
+            url: url.value.trim(),
+            headers: parseHeaders(),
+          }),
+    });
+    router.push('/');
+  } catch {
+    // error already logged by store
+  }
+}
 
+async function deleteServer() {
+  await store.removeServer(serverId);
   router.push('/');
 }
 </script>
@@ -50,10 +83,10 @@ async function addServer() {
 <template>
   <div class="flex h-full flex-col">
     <header class="border-b border-border px-4 py-3">
-      <h1 class="text-sm font-medium">Add Server</h1>
+      <h1 class="text-sm font-medium">Edit Server</h1>
     </header>
 
-    <form class="flex-1 overflow-y-auto p-4" @submit.prevent="addServer">
+    <form class="flex-1 overflow-y-auto p-4" @submit.prevent="saveServer">
       <div class="mx-auto max-w-md space-y-4">
         <!-- Name -->
         <div>
@@ -143,7 +176,7 @@ async function addServer() {
             type="submit"
             class="rounded bg-accent px-4 py-2 text-xs font-medium text-white transition-colors hover:bg-accent-hover"
           >
-            Add Server
+            Save
           </button>
           <router-link
             to="/"
@@ -151,6 +184,34 @@ async function addServer() {
           >
             Cancel
           </router-link>
+          <button
+            type="button"
+            class="ml-auto rounded bg-status-error/10 px-4 py-2 text-xs font-medium text-status-error transition-colors hover:bg-status-error/20"
+            @click="showDeleteConfirm = true"
+          >
+            Delete
+          </button>
+        </div>
+
+        <!-- Delete confirmation -->
+        <div v-if="showDeleteConfirm" class="rounded border border-status-error/30 bg-status-error/10 p-3">
+          <p class="mb-2 text-xs text-text-secondary">Are you sure you want to delete this server?</p>
+          <div class="flex gap-2">
+            <button
+              type="button"
+              class="rounded bg-status-error px-3 py-1 text-xs text-white transition-colors hover:bg-status-error/80"
+              @click="deleteServer"
+            >
+              Delete
+            </button>
+            <button
+              type="button"
+              class="rounded bg-surface-3 px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2"
+              @click="showDeleteConfirm = false"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       </div>
     </form>

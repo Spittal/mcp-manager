@@ -6,6 +6,7 @@ import type { ServerConfig, ServerConfigInput } from '@/types/server';
 export const useServersStore = defineStore('servers', () => {
   const servers = ref<ServerConfig[]>([]);
   const selectedServerId = ref<string | null>(null);
+  const lastError = ref<Record<string, string>>({});
 
   async function loadServers() {
     try {
@@ -20,8 +21,22 @@ export const useServersStore = defineStore('servers', () => {
       const server = await invoke<ServerConfig>('add_server', { input });
       servers.value.push(server);
       selectedServerId.value = server.id;
+      // Auto-connect
+      connectServer(server.id);
     } catch (e) {
       console.error('Failed to add server:', e);
+      throw e;
+    }
+  }
+
+  async function updateServer(id: string, input: ServerConfigInput) {
+    try {
+      const updated = await invoke<ServerConfig>('update_server', { id, input });
+      const idx = servers.value.findIndex(s => s.id === id);
+      if (idx !== -1) servers.value[idx] = updated;
+    } catch (e) {
+      console.error('Failed to update server:', e);
+      throw e;
     }
   }
 
@@ -38,12 +53,14 @@ export const useServersStore = defineStore('servers', () => {
   }
 
   async function connectServer(id: string) {
+    clearError(id);
     const server = servers.value.find(s => s.id === id);
     if (server) server.status = 'connecting';
     try {
       await invoke('connect_server', { id });
     } catch (e) {
-      console.error('Failed to connect server:', e);
+      const errorMsg = String(e);
+      setError(id, errorMsg);
       if (server) server.status = 'error';
     }
   }
@@ -65,15 +82,27 @@ export const useServersStore = defineStore('servers', () => {
     if (server) server.status = status;
   }
 
+  function setError(serverId: string, error: string) {
+    lastError.value[serverId] = error;
+  }
+
+  function clearError(serverId: string) {
+    delete lastError.value[serverId];
+  }
+
   return {
     servers,
     selectedServerId,
+    lastError,
     loadServers,
     addServer,
+    updateServer,
     removeServer,
     connectServer,
     disconnectServer,
     selectServer,
     updateServerStatus,
+    setError,
+    clearError,
   };
 });

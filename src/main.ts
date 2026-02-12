@@ -18,6 +18,11 @@ const router = createRouter({
       component: () => import('./views/AddServerView.vue'),
     },
     {
+      path: '/edit/:id',
+      name: 'edit-server',
+      component: () => import('./views/EditServerView.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('./views/SettingsView.vue'),

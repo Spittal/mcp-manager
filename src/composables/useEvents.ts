@@ -8,7 +8,13 @@ import type { McpTool } from '@/types/mcp';
 interface ServerStatusPayload {
   serverId: string;
   status: ServerStatus;
+  error?: string;
   lastConnected?: string;
+}
+
+interface ServerErrorPayload {
+  serverId: string;
+  error: string;
 }
 
 interface ToolsUpdatedPayload {
@@ -27,6 +33,15 @@ export function useEvents() {
     unlisteners.push(
       await listen<ServerStatusPayload>('server-status-changed', (event) => {
         serversStore.updateServerStatus(event.payload.serverId, event.payload.status);
+        if (event.payload.status === 'error' && event.payload.error) {
+          serversStore.setError(event.payload.serverId, event.payload.error);
+        }
+      })
+    );
+
+    unlisteners.push(
+      await listen<ServerErrorPayload>('server-error', (event) => {
+        serversStore.setError(event.payload.serverId, event.payload.error);
       })
     );
 

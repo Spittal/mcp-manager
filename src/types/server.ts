@@ -26,6 +26,7 @@ export interface ServerConfig {
   env?: Record<string, string>;
   // http
   url?: string;
+  headers?: Record<string, string>;
   auth?: ServerAuth;
   // metadata
   tags?: string[];

@@ -6,11 +6,16 @@ import ToolBrowser from '@/components/ToolBrowser.vue';
 import LogViewer from '@/components/LogViewer.vue';
 
 const store = useServersStore();
-const { servers, selectedServerId } = storeToRefs(store);
+const { servers, selectedServerId, lastError } = storeToRefs(store);
 
 const selectedServer = computed(() =>
   servers.value.find((s) => s.id === selectedServerId.value)
 );
+
+const serverError = computed(() => {
+  if (!selectedServer.value) return null;
+  return lastError.value[selectedServer.value.id] ?? null;
+});
 
 type Tab = 'overview' | 'tools' | 'logs';
 const activeTab = ref<Tab>('overview');
@@ -45,6 +50,12 @@ function formatDate(iso: string | undefined): string {
       <h1 class="text-sm font-medium">{{ selectedServer.name }}</h1>
       <span class="font-mono text-xs text-text-muted">{{ selectedServer.transport }}</span>
       <div class="ml-auto flex gap-2">
+        <router-link
+          :to="`/edit/${selectedServer.id}`"
+          class="rounded bg-surface-3 px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2"
+        >
+          Edit
+        </router-link>
         <button
           v-if="selectedServer.status !== 'connected'"
           class="rounded bg-accent px-3 py-1 text-xs text-white transition-colors hover:bg-accent-hover"
@@ -81,6 +92,10 @@ function formatDate(iso: string | undefined): string {
     <div class="min-h-0 flex-1">
       <!-- Overview -->
       <div v-if="activeTab === 'overview'" class="h-full overflow-y-auto p-4">
+        <div v-if="serverError" class="mb-4 rounded border border-status-error/30 bg-status-error/10 p-3">
+          <p class="mb-1 font-mono text-xs font-medium text-status-error">Connection Error</p>
+          <p class="font-mono text-xs text-text-secondary break-all">{{ serverError }}</p>
+        </div>
         <section class="mb-6">
           <h2 class="mb-2 font-mono text-xs font-medium tracking-wide text-text-muted uppercase">Status</h2>
           <div class="rounded border border-border bg-surface-1 p-3">
