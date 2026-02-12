@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useServersStore } from '@/stores/servers';
 import type { ServerTransport } from '@/types/server';
@@ -17,6 +17,18 @@ const args = ref('');
 const url = ref('');
 const headers = ref('');
 const showDeleteConfirm = ref(false);
+
+const urlWarning = computed(() => {
+  const u = url.value.trim().toLowerCase();
+  if (!u) return null;
+  if (u.includes('/docs/') || u.includes('/changelog/') || u.includes('/blog/')) {
+    return 'This looks like a documentation page, not an MCP endpoint. The endpoint URL is usually on a different subdomain (e.g. mcp.linear.app) and ends with /sse or /mcp.';
+  }
+  if (u.endsWith('.html') || u.endsWith('.htm')) {
+    return 'This URL points to an HTML page. MCP endpoints typically end with /sse or /mcp.';
+  }
+  return null;
+});
 
 onMounted(async () => {
   if (!store.servers.length) {
@@ -155,9 +167,11 @@ async function deleteServer() {
             <input
               v-model="url"
               type="text"
-              placeholder="https://example.com/mcp"
+              placeholder="https://mcp.linear.app/sse"
               class="w-full rounded border border-border bg-surface-1 px-3 py-2 font-mono text-xs text-text-primary outline-none transition-colors placeholder:text-text-muted focus:border-accent"
             />
+            <p v-if="urlWarning" class="mt-1.5 rounded bg-status-error/10 px-2 py-1 text-[11px] text-status-error">{{ urlWarning }}</p>
+            <p v-else class="mt-1 text-[11px] text-text-muted">The MCP server endpoint URL, not the docs page. Often ends with /sse or /mcp.</p>
           </div>
           <div>
             <label class="mb-1 block font-mono text-xs text-text-muted uppercase">Headers</label>

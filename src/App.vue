@@ -21,6 +21,8 @@ onMounted(() => {
     <div class="flex min-h-0 flex-1">
       <!-- Sidebar -->
       <aside class="flex w-60 flex-col border-r border-border bg-surface-1">
+        <!-- Titlebar spacer for macOS traffic light buttons -->
+        <div data-tauri-drag-region class="h-8 shrink-0" />
         <div class="flex items-center justify-between border-b border-border px-3 py-2">
           <span class="font-mono text-xs font-medium tracking-wide text-text-secondary uppercase">Servers</span>
           <router-link
@@ -43,6 +45,8 @@ onMounted(() => {
 
       <!-- Main content -->
       <main class="flex min-w-0 flex-1 flex-col bg-surface-0">
+        <!-- Titlebar spacer for macOS (matches sidebar) -->
+        <div data-tauri-drag-region class="h-8 shrink-0" />
         <router-view />
       </main>
     </div>
