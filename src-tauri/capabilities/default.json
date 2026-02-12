@@ -1,0 +1,14 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for MCP Manager",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "shell:allow-spawn",
+    "shell:allow-execute",
+    "shell:allow-kill",
+    "shell:allow-stdin-write",
+    "store:default",
+    "http:default"
+  ]
+}
