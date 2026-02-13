@@ -63,12 +63,6 @@ impl HttpTransport {
         })
     }
 
-    /// Update the OAuth access token (used after token refresh or initial auth).
-    pub async fn set_access_token(&self, token: Option<String>) {
-        let mut t = self.access_token.lock().await;
-        *t = token;
-    }
-
     /// Legacy SSE connection: GET the URL, parse the `endpoint` event, then POST to that URL.
     async fn connect_legacy_sse(
         url: &str,
@@ -375,5 +369,6 @@ fn extract_json_from_sse(body: &str) -> Result<String, AppError> {
 
     // Typically each data line is a complete JSON object
     // Return the last one (which should be the response)
-    Ok(json_parts.last().unwrap().clone())
+    // Safe: we already checked json_parts is non-empty above
+    Ok(json_parts.last().expect("non-empty after guard").clone())
 }

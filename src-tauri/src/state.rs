@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ServerConfig {
     pub id: String,
     pub name: String,
@@ -24,6 +25,8 @@ pub struct ServerConfig {
     pub status: Option<ServerStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_connected: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -56,6 +59,7 @@ pub struct ServerConfigInput {
 }
 
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct McpTool {
     pub name: String,
     pub title: Option<String>,
@@ -72,7 +76,6 @@ pub struct AppState {
 
 pub struct ConnectionState {
     pub tools: Vec<McpTool>,
-    pub child_pid: Option<u32>,
 }
 
 impl AppState {

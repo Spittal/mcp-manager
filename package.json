@@ -1,6 +1,6 @@
 {
   "name": "mcp-manager",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Native macOS app for managing MCP servers",
   "type": "module",
   "scripts": {
@@ -16,8 +16,6 @@
   "license": "ISC",
   "packageManager": "pnpm@10.24.0",
   "devDependencies": {
-    "@browserbasehq/stagehand": "^3.0.8",
-    "@playwright/test": "^1.58.2",
     "@tailwindcss/vite": "^4.1.18",
     "@tauri-apps/cli": "^2.10.0",
     "@vitejs/plugin-vue": "^6.0.4",
@@ -25,8 +23,7 @@
     "typescript": "^5.9.3",
     "vite": "^7.3.1",
     "vue": "^3.5.28",
-    "vue-tsc": "^3.2.4",
-    "zod": "^4.3.6"
+    "vue-tsc": "^3.2.4"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",

@@ -172,7 +172,6 @@ pub async fn start_oauth_flow(
 
     match client {
         Ok(mcp_client) => {
-            let child_pid = mcp_client.child_pid();
             let tools: Vec<crate::state::McpTool> = {
                 let s = state.lock().unwrap();
                 let server_name = s
@@ -204,7 +203,6 @@ pub async fn start_oauth_flow(
                     id.clone(),
                     crate::state::ConnectionState {
                         tools: tools.clone(),
-                        child_pid,
                     },
                 );
             }

@@ -253,7 +253,11 @@ pnpm tauri add fs
 - Organize commands by domain in `src-tauri/src/commands/`
 - All commands are async unless trivially simple
 - State accessed via `State<'_, Mutex<AppState>>` pattern
-- Use `tokio::Mutex` only when holding lock across await points
+- Use `std::sync::Mutex` for serializable state (`AppState`), `tokio::sync::Mutex` only when holding lock across `.await` points (`McpConnections`, `OAuthStore`)
+- Never use bare `.unwrap()` on fallible operations — use `.expect("reason")` or proper error handling
+- Keep `AppError` variants minimal — only add variants that are actively used by commands
+- Remove dead code promptly; run `cargo check` to verify zero warnings before committing
+- **Serde camelCase for IPC structs**: Tauri only auto-converts snake_case → camelCase for command *arguments* (JS → Rust). Return values use serde as-is. Any struct returned to the frontend **must** have `#[serde(rename_all = "camelCase")]` so field names match the TypeScript interfaces. Without this, the JS side sees `undefined` for multi-word fields (e.g., `existing_servers` vs `existingServers`), causing silent runtime errors.
 
 ### TypeScript/Vue
 - Composition API with `<script setup lang="ts">`
@@ -261,6 +265,9 @@ pnpm tauri add fs
 - Tauri IPC calls wrapped in composables (`src/composables/`)
 - Strong typing — define interfaces for all IPC payloads in `src/types/`
 - Always `unlisten()` event listeners on component unmount
+- Extract shared UI logic into components (`src/components/`) — e.g., `ServerForm.vue` for add/edit views
+- Extract shared helper functions into composables — e.g., `useServerStatus.ts` for status display logic
+- Keep frontend types in sync with Rust structs — don't define fields the backend never sends
 
 ### Naming
 - Rust crate: `mcp-manager` (binary) / commands in snake_case
@@ -268,6 +275,7 @@ pnpm tauri add fs
 - Pinia stores: `useXxxStore` pattern
 - Tauri commands: snake_case in Rust, camelCase when invoked from JS
 - Events: kebab-case (`server-status-changed`)
+- Types: one file per domain in `src/types/` (server.ts, oauth.ts, proxy.ts, integration.ts, mcp.ts)
 
 ## References
 - Tauri v2 Docs: https://v2.tauri.app/

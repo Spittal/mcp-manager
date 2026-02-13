@@ -279,7 +279,7 @@ pub async fn exchange_code(
 
     let obtained_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("system clock before UNIX epoch")
         .as_secs();
 
     info!("Token exchange successful, expires_in={expires_in:?}");
@@ -351,7 +351,7 @@ pub async fn refresh_token(
 
     let obtained_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("system clock before UNIX epoch")
         .as_secs();
 
     Ok(OAuthTokens {
@@ -373,7 +373,7 @@ pub fn is_token_expired(tokens: &OAuthTokens) -> bool {
 
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .unwrap()
+        .expect("system clock before UNIX epoch")
         .as_secs();
 
     let expiry = tokens.obtained_at + expires_in;

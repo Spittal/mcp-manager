@@ -23,14 +23,18 @@ pub enum AppError {
     #[error("OAuth error: {0}")]
     OAuth(String),
 
+    #[error("Integration not found: {0}")]
+    IntegrationNotFound(String),
+
+    #[error("Dependency not found: {0}")]
+    DependencyNotFound(String),
+
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 
-    #[error("Store error: {0}")]
-    Store(String),
 }
 
 impl Serialize for AppError {

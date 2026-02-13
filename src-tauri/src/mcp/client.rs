@@ -27,11 +27,12 @@ impl McpClient {
     /// Spawn an MCP server, perform the initialization handshake, and discover tools.
     pub async fn connect_stdio(
         app: &AppHandle,
+        server_id: &str,
         command: &str,
         args: &[String],
         env: &HashMap<String, String>,
     ) -> Result<Self, AppError> {
-        let transport = StdioTransport::spawn(app, command, args, env)?;
+        let transport = StdioTransport::spawn(app, server_id, command, args, env)?;
 
         let mut client = Self {
             transport: Transport::Stdio(transport),
@@ -134,11 +135,6 @@ impl McpClient {
         Ok(())
     }
 
-    /// Refresh the tools list (e.g. after a tools/list_changed notification).
-    pub async fn refresh_tools(&mut self) -> Result<(), AppError> {
-        self.discover_tools().await
-    }
-
     /// Call a tool by name with the given arguments.
     pub async fn call_tool(
         &self,
@@ -162,14 +158,6 @@ impl McpClient {
             .map_err(|e| AppError::Protocol(format!("Failed to parse tool call result: {e}")))?;
 
         Ok(call_result)
-    }
-
-    /// Get the PID of the child process (stdio only).
-    pub fn child_pid(&self) -> Option<u32> {
-        match &self.transport {
-            Transport::Stdio(t) => t.child_pid,
-            Transport::Http(_) => None,
-        }
     }
 
     /// Shut down the client.
@@ -243,10 +231,6 @@ impl McpConnections {
 
     pub fn get(&self, id: &str) -> Option<&McpClient> {
         self.clients.get(id)
-    }
-
-    pub fn get_mut(&mut self, id: &str) -> Option<&mut McpClient> {
-        self.clients.get_mut(id)
     }
 }
 
