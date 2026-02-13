@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import { useRouter } from 'vue-router';
+import { ref, computed, watch } from 'vue';
 import { useServersStore } from '@/stores/servers';
 import { storeToRefs } from 'pinia';
 import ToolBrowser from '@/components/ToolBrowser.vue';
 import LogViewer from '@/components/LogViewer.vue';
+import { statusColor, statusLabel } from '@/composables/useServerStatus';
 
-const router = useRouter();
 const store = useServersStore();
 const { servers, selectedServerId, lastError, oauthStatus } = storeToRefs(store);
 
@@ -63,14 +62,19 @@ const oauthProgressLabel = computed(() => {
 
 const confirmingDelete = ref(false);
 
+// Reset confirm state whenever the selected server changes
+watch(selectedServerId, () => {
+  confirmingDelete.value = false;
+});
+
 async function deleteServer() {
   if (!selectedServer.value) return;
   const id = selectedServer.value.id;
+  confirmingDelete.value = false;
   if (selectedServer.value.status === 'connected') {
     await store.disconnectServer(id);
   }
   await store.removeServer(id);
-  router.push('/');
 }
 
 async function toggleEnabled() {
@@ -98,19 +102,6 @@ async function toggleEnabled() {
 
 type Tab = 'overview' | 'tools' | 'logs';
 const activeTab = ref<Tab>('overview');
-
-function statusColor(status: string | undefined): string {
-  switch (status) {
-    case 'connected': return 'bg-status-connected';
-    case 'connecting': return 'bg-status-connecting';
-    case 'error': return 'bg-status-error';
-    default: return 'bg-status-disconnected';
-  }
-}
-
-function statusLabel(status: string | undefined): string {
-  return status ?? 'disconnected';
-}
 
 function formatDate(iso: string | undefined): string {
   if (!iso) return 'Never';
@@ -165,27 +156,29 @@ function formatDate(iso: string | undefined): string {
           Disconnect
         </button>
 
-        <!-- Delete -->
-        <button
-          v-if="!confirmingDelete"
-          class="rounded bg-surface-3 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-status-error/20 hover:text-status-error"
-          @click="confirmingDelete = true"
-        >
-          Delete
-        </button>
-        <template v-else>
+        <!-- Delete (hidden for managed servers) -->
+        <template v-if="!selectedServer.managed">
           <button
-            class="rounded bg-status-error px-3 py-1 text-xs text-white transition-colors hover:bg-status-error/80"
-            @click="deleteServer"
+            v-if="!confirmingDelete"
+            class="rounded bg-surface-3 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-status-error/20 hover:text-status-error"
+            @click="confirmingDelete = true"
           >
-            Confirm
+            Delete
           </button>
-          <button
-            class="rounded bg-surface-3 px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2"
-            @click="confirmingDelete = false"
-          >
-            Cancel
-          </button>
+          <template v-else>
+            <button
+              class="rounded bg-status-error px-3 py-1 text-xs text-white transition-colors hover:bg-status-error/80"
+              @click="deleteServer"
+            >
+              Confirm
+            </button>
+            <button
+              class="rounded bg-surface-3 px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2"
+              @click="confirmingDelete = false"
+            >
+              Cancel
+            </button>
+          </template>
         </template>
       </div>
     </header>
