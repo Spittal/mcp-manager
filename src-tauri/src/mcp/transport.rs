@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
-use tauri::AppHandle;
+use tauri::{AppHandle, Emitter};
 use tauri_plugin_shell::process::CommandEvent;
 use tauri_plugin_shell::ShellExt;
 use tokio::sync::{mpsc, oneshot, Mutex};
@@ -21,10 +21,6 @@ pub struct StdioTransport {
     stdin_tx: mpsc::Sender<String>,
     /// Map of request ID -> oneshot sender for response correlation.
     pending: Arc<Mutex<HashMap<u64, PendingRequest>>>,
-    /// Channel that receives JSON-RPC notifications (messages without an id matching a request).
-    pub notification_rx: Mutex<mpsc::Receiver<JsonRpcResponse>>,
-    /// The PID of the child process (for kill on disconnect).
-    pub child_pid: Option<u32>,
 }
 
 impl StdioTransport {
@@ -35,6 +31,7 @@ impl StdioTransport {
     /// `env` is an optional set of extra environment variables.
     pub fn spawn(
         app: &AppHandle,
+        server_id: &str,
         command: &str,
         args: &[String],
         env: &HashMap<String, String>,
@@ -51,8 +48,6 @@ impl StdioTransport {
         let (mut rx, mut child) = cmd
             .spawn()
             .map_err(|e| AppError::Transport(format!("Failed to spawn process: {e}")))?;
-
-        let child_pid = child.pid();
 
         // Channel for sending lines to stdin
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(64);
@@ -74,8 +69,11 @@ impl StdioTransport {
             Arc::new(Mutex::new(HashMap::new()));
         let pending_clone = pending.clone();
 
-        // Channel for notifications (messages from server that are not responses to our requests)
-        let (notification_tx, notification_rx) = mpsc::channel::<JsonRpcResponse>(64);
+        // Channel for notifications (server-initiated messages that don't match a pending request)
+        let (notification_tx, _notification_rx) = mpsc::channel::<JsonRpcResponse>(64);
+
+        let log_app = app.clone();
+        let log_server_id = server_id.to_string();
 
         // Stdout/stderr reader task
         tauri::async_runtime::spawn(async move {
@@ -119,11 +117,33 @@ impl StdioTransport {
                         }
                     }
                     CommandEvent::Stderr(bytes) => {
-                        let text = String::from_utf8_lossy(&bytes);
-                        warn!("MCP stderr: {text}");
+                        let text = String::from_utf8_lossy(&bytes).trim().to_string();
+                        if !text.is_empty() {
+                            // Python sends all logging to stderr — detect the
+                            // actual level from the message content instead of
+                            // treating everything as an error.
+                            let level = detect_log_level(&text);
+                            warn!("MCP stderr: {text}");
+                            let _ = log_app.emit(
+                                "server-log",
+                                serde_json::json!({
+                                    "serverId": log_server_id,
+                                    "level": level,
+                                    "message": text,
+                                }),
+                            );
+                        }
                     }
                     CommandEvent::Terminated(status) => {
                         debug!("MCP process terminated: {status:?}");
+                        let _ = log_app.emit(
+                            "server-log",
+                            serde_json::json!({
+                                "serverId": log_server_id,
+                                "level": "info",
+                                "message": format!("Process exited: {status:?}"),
+                            }),
+                        );
                         break;
                     }
                     _ => {}
@@ -135,8 +155,6 @@ impl StdioTransport {
             next_id: AtomicU64::new(1),
             stdin_tx,
             pending,
-            notification_rx: Mutex::new(notification_rx),
-            child_pid: Some(child_pid),
         })
     }
 
@@ -172,7 +190,7 @@ impl StdioTransport {
 
         debug!("Sent request id={id} method={method}");
 
-        let response = tokio::time::timeout(std::time::Duration::from_secs(30), rx)
+        let response = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
             .await
             .map_err(|_| {
                 AppError::Transport(format!("Timeout waiting for response to {method} (id={id})"))
@@ -221,5 +239,21 @@ impl StdioTransport {
         // We don't explicitly drop here because the transport owns the sender,
         // but callers can drop the whole StdioTransport.
         debug!("StdioTransport::shutdown called");
+    }
+}
+
+/// Detect the log level from stderr content. Python sends all logging to
+/// stderr, so we parse the message to find the actual level keyword.
+fn detect_log_level(text: &str) -> &'static str {
+    let upper = text.to_uppercase();
+    if upper.contains(" ERROR ") || upper.contains("TRACEBACK") {
+        "error"
+    } else if upper.contains("WARNING") || upper.contains("USERWARNING") {
+        "warn"
+    } else if upper.contains(" INFO ") || upper.contains(" DEBUG ") {
+        "info"
+    } else {
+        // Default stderr to warn — it's not stdout, but not necessarily an error
+        "warn"
     }
 }
