@@ -139,22 +139,6 @@ function formatDate(iso: string | undefined): string {
         >
           Edit
         </router-link>
-        <button
-          v-if="selectedServer.status !== 'connected'"
-          class="rounded bg-accent px-3 py-1 text-xs text-white transition-colors hover:bg-accent-hover"
-          :disabled="!selectedServer.enabled"
-          :class="{ 'opacity-50 cursor-not-allowed': !selectedServer.enabled }"
-          @click="store.connectServer(selectedServer.id)"
-        >
-          Connect
-        </button>
-        <button
-          v-else
-          class="rounded bg-surface-3 px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2"
-          @click="store.disconnectServer(selectedServer.id)"
-        >
-          Disconnect
-        </button>
 
         <!-- Delete (hidden for managed servers) -->
         <template v-if="!selectedServer.managed">
