@@ -74,6 +74,7 @@ pub struct AppState {
     pub connections: HashMap<String, ConnectionState>,
     /// IDs of AI tool integrations that MCP Manager is configured to manage.
     pub enabled_integrations: Vec<String>,
+    pub embedding_config: EmbeddingConfig,
 }
 
 pub struct ConnectionState {
@@ -86,6 +87,32 @@ impl AppState {
             servers: Vec::new(),
             connections: HashMap::new(),
             enabled_integrations: Vec::new(),
+            embedding_config: EmbeddingConfig::default(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingConfig {
+    pub provider: EmbeddingProvider,
+    pub model: String,
+    pub dimensions: u32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum EmbeddingProvider {
+    Ollama,
+    Openai,
+}
+
+impl Default for EmbeddingConfig {
+    fn default() -> Self {
+        Self {
+            provider: EmbeddingProvider::Ollama,
+            model: "mxbai-embed-large".into(),
+            dimensions: 1024,
         }
     }
 }

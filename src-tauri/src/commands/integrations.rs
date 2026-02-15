@@ -333,7 +333,7 @@ pub async fn enable_integration(
     }
 
     // Write per-server proxy entries for all currently connected servers
-    write_per_server_config(&app, &tool.config_path, port)?;
+    write_per_server_config(&app, &tool.config_path, port, &tool.id)?;
 
     info!(
         "Enabled MCP Manager integration for {} (port {})",
@@ -389,7 +389,13 @@ pub async fn disable_integration(
 
 /// Write per-server proxy entries to a tool's config file.
 /// Each connected server gets its own entry in mcpServers.
-fn write_per_server_config(app: &AppHandle, path: &Path, port: u16) -> Result<(), AppError> {
+/// `tool_id` is appended as `?client=` so the proxy can identify the calling AI tool.
+fn write_per_server_config(
+    app: &AppHandle,
+    path: &Path,
+    port: u16,
+    tool_id: &str,
+) -> Result<(), AppError> {
     let state = app.state::<SharedState>();
     let s = state.lock().unwrap();
 
@@ -401,7 +407,7 @@ fn write_per_server_config(app: &AppHandle, path: &Path, port: u16) -> Result<()
         mcp_servers.insert(
             srv.name.clone(),
             serde_json::json!({
-                "url": format!("http://localhost:{port}/mcp/{}", srv.id)
+                "url": format!("http://localhost:{port}/mcp/{}?client={tool_id}", srv.id)
             }),
         );
     }
@@ -474,7 +480,7 @@ pub fn update_all_integration_configs(app: &AppHandle, port: u16) -> Result<(), 
             continue;
         }
 
-        if let Err(e) = write_per_server_config(app, &tool.config_path, port) {
+        if let Err(e) = write_per_server_config(app, &tool.config_path, port, &tool.id) {
             warn!("Failed to update config for {}: {e}", tool.name);
         } else {
             info!("Updated {} config with per-server proxy entries", tool.name);

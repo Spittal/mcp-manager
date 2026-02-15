@@ -1,18 +1,22 @@
+use std::collections::HashMap;
 use std::sync::Arc;
 
-use axum::extract::{Path, State as AxumState};
+use axum::extract::{Path, Query, State as AxumState};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::IntoResponse;
 use axum::routing::post;
 use axum::{Json, Router};
 use serde_json::Value;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio::net::TcpListener;
 use tokio::sync::RwLock;
+use tokio::time::Instant;
 use tracing::{error, info};
 
 use crate::mcp::client::{McpConnections, SharedConnections};
+use crate::persistence::save_stats;
 use crate::state::SharedState;
+use crate::stats::{unix_now, StatsStore, ToolCallEntry, ToolStats};
 
 /// Shared proxy state tracking whether the server is running and on which port.
 #[derive(Clone)]
@@ -103,6 +107,7 @@ async fn handle_mcp_get() -> impl IntoResponse {
 async fn handle_mcp_post(
     AxumState(state): AxumState<ProxyAppState>,
     Path(server_id): Path<String>,
+    Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
     let method = body
@@ -111,6 +116,7 @@ async fn handle_mcp_post(
         .unwrap_or_default();
     let id = body.get("id").cloned();
     let params = body.get("params").cloned();
+    let client = query.get("client").cloned().unwrap_or_default();
 
     // Per spec: if the message has no "id", it's a notification or response.
     // Notifications must get 202 Accepted with no body.
@@ -150,7 +156,9 @@ async fn handle_mcp_post(
     let response = match method {
         "initialize" => handle_initialize(id, &server_name),
         "tools/list" => handle_tools_list(id, &server_id, &state),
-        "tools/call" => handle_tools_call(id, params, &server_id, &server_name, &state).await,
+        "tools/call" => {
+            handle_tools_call(id, params, &server_id, &server_name, &client, &state).await
+        }
         _ => make_error_response(id, -32601, &format!("Method not found: {method}")),
     };
 
@@ -199,6 +207,7 @@ async fn handle_tools_call(
     params: Option<Value>,
     server_id: &str,
     server_name: &str,
+    client_id: &str,
     state: &ProxyAppState,
 ) -> Value {
     let params = match params {
@@ -236,7 +245,11 @@ async fn handle_tools_call(
 
     info!("Proxy tool call: {server_name}.{tool_name}");
 
-    match client.call_tool(&tool_name, arguments).await {
+    let start = Instant::now();
+    let call_result = client.call_tool(&tool_name, arguments).await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+
+    let (response, is_error) = match call_result {
         Ok(result) => {
             let is_err = result.is_error.unwrap_or(false);
             if is_err {
@@ -254,17 +267,100 @@ async fn handle_tools_call(
                     );
                 }
             };
-            serde_json::json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": result_value
-            })
+            (
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": id,
+                    "result": result_value
+                }),
+                is_err,
+            )
         }
         Err(e) => {
             error!("Proxy tool call failed: {server_name}.{tool_name} -> {e}");
-            make_error_response(id, -32603, &format!("Tool call failed: {e}"))
+            (
+                make_error_response(id, -32603, &format!("Tool call failed: {e}")),
+                true,
+            )
         }
+    };
+
+    // Record stats
+    record_tool_stats(
+        &state.app_handle,
+        server_id,
+        &tool_name,
+        client_id,
+        duration_ms,
+        is_error,
+    )
+    .await;
+
+    response
+}
+
+/// Record a tool call in the stats store, persist periodically, and emit event.
+async fn record_tool_stats(
+    app: &AppHandle,
+    server_id: &str,
+    tool_name: &str,
+    client_id: &str,
+    duration_ms: u64,
+    is_error: bool,
+) {
+    let stats_store = app.state::<StatsStore>();
+    let mut store = stats_store.write().await;
+
+    let server_stats = store.entry(server_id.to_string()).or_default();
+
+    // Server-level aggregates
+    server_stats.total_calls += 1;
+    if is_error {
+        server_stats.errors += 1;
     }
+    server_stats.total_duration_ms += duration_ms;
+
+    // Per-tool aggregates
+    let tool_stats = server_stats
+        .tools
+        .entry(tool_name.to_string())
+        .or_insert_with(ToolStats::default);
+    tool_stats.total_calls += 1;
+    if is_error {
+        tool_stats.errors += 1;
+    }
+    tool_stats.total_duration_ms += duration_ms;
+
+    // Per-client aggregates
+    if !client_id.is_empty() {
+        *server_stats
+            .clients
+            .entry(client_id.to_string())
+            .or_insert(0) += 1;
+    }
+
+    // Recent call log (capped at MAX_RECENT_CALLS)
+    server_stats.push_call(ToolCallEntry {
+        tool: tool_name.to_string(),
+        client: client_id.to_string(),
+        duration_ms,
+        is_error,
+        timestamp: unix_now(),
+    });
+
+    // Persist every 10 calls
+    let should_persist = server_stats.total_calls % 10 == 0;
+    if should_persist {
+        save_stats(app, &store);
+    }
+
+    drop(store);
+
+    // Emit event so frontend can refresh
+    let _ = app.emit(
+        "tool-call-recorded",
+        serde_json::json!({ "serverId": server_id }),
+    );
 }
 
 /// Collect tools for a specific server (no namespacing — original tool names).

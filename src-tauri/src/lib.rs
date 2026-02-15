@@ -2,13 +2,16 @@ mod commands;
 mod error;
 mod mcp;
 mod persistence;
+pub mod stats;
 mod state;
 mod tray;
 
 use mcp::client::McpConnections;
 use state::{AppState, OAuthStore};
-use std::sync::Mutex;
+use stats::StatsStore;
+use std::sync::{Arc, Mutex};
 use tauri::Manager;
+use tokio::sync::RwLock;
 use tracing::info;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -21,21 +24,28 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_opener::init())
         .setup(|app| {
-            // Load persisted server configs and enabled integrations
+            // Load persisted server configs, enabled integrations, and stats
             let servers = persistence::load_servers(app.handle());
             let enabled_integrations = persistence::load_enabled_integrations(app.handle());
+            let stats = persistence::load_stats(app.handle());
+            let embedding_config = persistence::load_embedding_config(app.handle());
             info!(
-                "Loaded {} servers, {} enabled integrations from persistent store",
+                "Loaded {} servers, {} enabled integrations, {} server stats from persistent store",
                 servers.len(),
-                enabled_integrations.len()
+                enabled_integrations.len(),
+                stats.len()
             );
 
             let mut app_state = AppState::new();
             app_state.servers = servers;
             app_state.enabled_integrations = enabled_integrations;
+            app_state.embedding_config = embedding_config;
             app.manage(Mutex::new(app_state));
             app.manage(tokio::sync::Mutex::new(McpConnections::new()));
             app.manage(tokio::sync::Mutex::new(OAuthStore::new()));
+
+            let stats_store: StatsStore = Arc::new(RwLock::new(stats));
+            app.manage(stats_store);
 
             // Start the MCP proxy server
             let proxy_state = mcp::proxy::ProxyState::new();
@@ -74,6 +84,10 @@ pub fn run() {
             commands::memory::get_memory_status,
             commands::memory::enable_memory,
             commands::memory::disable_memory,
+            commands::memory::get_embedding_config,
+            commands::memory::save_embedding_config_cmd,
+            commands::stats::get_server_stats,
+            commands::stats::reset_server_stats,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

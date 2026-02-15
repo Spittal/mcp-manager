@@ -1,10 +1,13 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
+import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { useServersStore } from '@/stores/servers';
 import { storeToRefs } from 'pinia';
 import ToolBrowser from '@/components/ToolBrowser.vue';
 import LogViewer from '@/components/LogViewer.vue';
 import { statusColor, statusLabel } from '@/composables/useServerStatus';
+import type { ServerStats } from '@/types/stats';
 
 const store = useServersStore();
 const { servers, selectedServerId, lastError, oauthStatus } = storeToRefs(store);
@@ -61,10 +64,92 @@ const oauthProgressLabel = computed(() => {
 });
 
 const confirmingDelete = ref(false);
+const stats = ref<ServerStats | null>(null);
+
+async function fetchStats() {
+  if (!selectedServerId.value) return;
+  try {
+    stats.value = await invoke<ServerStats>('get_server_stats', { serverId: selectedServerId.value });
+  } catch {
+    stats.value = null;
+  }
+}
+
+async function resetStats() {
+  if (!selectedServerId.value) return;
+  await invoke('reset_server_stats', { serverId: selectedServerId.value });
+  stats.value = null;
+}
+
+const successRate = computed(() => {
+  if (!stats.value || stats.value.totalCalls === 0) return null;
+  return ((stats.value.totalCalls - stats.value.errors) / stats.value.totalCalls) * 100;
+});
+
+const avgLatency = computed(() => {
+  if (!stats.value || stats.value.totalCalls === 0) return null;
+  return Math.round(stats.value.totalDurationMs / stats.value.totalCalls);
+});
+
+const topClient = computed(() => {
+  if (!stats.value || Object.keys(stats.value.clients).length === 0) return null;
+  const entries = Object.entries(stats.value.clients);
+  entries.sort((a, b) => b[1] - a[1]);
+  return entries[0][0];
+});
+
+const sortedTools = computed(() => {
+  if (!stats.value) return [];
+  return Object.entries(stats.value.tools)
+    .map(([name, t]) => ({
+      name,
+      calls: t.totalCalls,
+      errors: t.errors,
+      avgLatency: t.totalCalls > 0 ? Math.round(t.totalDurationMs / t.totalCalls) : 0,
+    }))
+    .sort((a, b) => b.calls - a.calls);
+});
+
+const clientLabels: Record<string, string> = {
+  cursor: 'Cursor',
+  'claude-code': 'Claude Code',
+  'claude-desktop': 'Claude Desktop',
+  windsurf: 'Windsurf',
+};
+
+function formatClientName(id: string): string {
+  return clientLabels[id] ?? id;
+}
+
+const recentCalls = computed(() => {
+  if (!stats.value) return [];
+  // Newest first
+  return [...stats.value.recentCalls].reverse();
+});
+
+function formatTime(unixSecs: number): string {
+  return new Date(unixSecs * 1000).toLocaleTimeString();
+}
+
+let unlistenStats: (() => void) | null = null;
+
+onMounted(async () => {
+  fetchStats();
+  unlistenStats = await listen<{ serverId: string }>('tool-call-recorded', (event) => {
+    if (event.payload.serverId === selectedServerId.value) {
+      fetchStats();
+    }
+  });
+});
+
+onUnmounted(() => {
+  unlistenStats?.();
+});
 
 // Reset confirm state whenever the selected server changes
 watch(selectedServerId, () => {
   confirmingDelete.value = false;
+  fetchStats();
 });
 
 async function deleteServer() {
@@ -103,9 +188,13 @@ async function toggleEnabled() {
 type Tab = 'overview' | 'tools' | 'logs';
 const activeTab = ref<Tab>('overview');
 
-function formatDate(iso: string | undefined): string {
-  if (!iso) return 'Never';
-  return new Date(iso).toLocaleString();
+function formatDate(raw: string | undefined): string {
+  if (!raw) return '';
+  // Backend stores Unix seconds as a plain numeric string
+  const ts = Number(raw);
+  const date = Number.isFinite(ts) && ts > 1e9 ? new Date(ts * 1000) : new Date(raw);
+  if (isNaN(date.getTime())) return '';
+  return date.toLocaleString();
 }
 </script>
 
@@ -228,8 +317,86 @@ function formatDate(iso: string | undefined): string {
                 Revoke
               </button>
             </div>
-            <div class="mt-2 text-[11px] text-text-muted">
+            <div v-if="formatDate(selectedServer.lastConnected)" class="mt-2 text-[11px] text-text-muted">
               Last connected: {{ formatDate(selectedServer.lastConnected) }}
+            </div>
+          </div>
+        </section>
+
+        <section v-if="stats && stats.totalCalls > 0" class="mb-6">
+          <div class="mb-2 flex items-center justify-between">
+            <h2 class="font-mono text-xs font-medium tracking-wide text-text-muted uppercase">Usage</h2>
+            <button
+              class="text-[11px] text-text-muted transition-colors hover:text-status-error"
+              @click="resetStats"
+            >
+              Reset Stats
+            </button>
+          </div>
+          <div class="grid grid-cols-2 gap-2">
+            <div class="rounded border border-border bg-surface-1 p-3">
+              <div class="text-lg font-medium text-text-primary">{{ stats.totalCalls }}</div>
+              <div class="text-[11px] text-text-muted">Total Calls</div>
+            </div>
+            <div class="rounded border border-border bg-surface-1 p-3">
+              <div class="text-lg font-medium text-text-primary">{{ successRate !== null ? successRate.toFixed(1) + '%' : '—' }}</div>
+              <div class="text-[11px] text-text-muted">Success Rate</div>
+            </div>
+            <div class="rounded border border-border bg-surface-1 p-3">
+              <div class="text-lg font-medium text-text-primary">{{ avgLatency !== null ? avgLatency + 'ms' : '—' }}</div>
+              <div class="text-[11px] text-text-muted">Avg Latency</div>
+            </div>
+            <div class="rounded border border-border bg-surface-1 p-3">
+              <div class="text-lg font-medium text-text-primary">{{ topClient ? formatClientName(topClient) : '—' }}</div>
+              <div class="text-[11px] text-text-muted">Top Client</div>
+            </div>
+          </div>
+          <div v-if="sortedTools.length > 0" class="mt-3">
+            <table class="w-full text-xs font-mono">
+              <thead>
+                <tr class="border-b border-border text-left text-text-muted">
+                  <th class="pb-1.5 font-normal">Tool</th>
+                  <th class="pb-1.5 font-normal text-right">Calls</th>
+                  <th class="pb-1.5 font-normal text-right">Errors</th>
+                  <th class="pb-1.5 font-normal text-right">Avg Latency</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="tool in sortedTools" :key="tool.name" class="border-b border-border/50">
+                  <td class="py-1.5 text-text-secondary">{{ tool.name }}</td>
+                  <td class="py-1.5 text-right text-text-secondary">{{ tool.calls }}</td>
+                  <td class="py-1.5 text-right" :class="tool.errors > 0 ? 'text-status-error' : 'text-text-secondary'">{{ tool.errors }}</td>
+                  <td class="py-1.5 text-right text-text-secondary">{{ tool.avgLatency }}ms</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div v-if="recentCalls.length > 0" class="mt-4">
+            <h3 class="mb-1.5 text-[11px] font-medium text-text-muted">Recent Calls</h3>
+            <div class="max-h-52 overflow-y-auto rounded border border-border">
+              <table class="w-full text-xs font-mono">
+                <thead class="sticky top-0 bg-surface-1">
+                  <tr class="border-b border-border text-left text-text-muted">
+                    <th class="px-2 py-1.5 font-normal">Time</th>
+                    <th class="px-2 py-1.5 font-normal">Tool</th>
+                    <th class="px-2 py-1.5 font-normal">Client</th>
+                    <th class="px-2 py-1.5 font-normal text-right">Latency</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr
+                    v-for="(call, i) in recentCalls"
+                    :key="i"
+                    class="border-b border-border/30"
+                    :class="call.isError ? 'text-status-error' : 'text-text-secondary'"
+                  >
+                    <td class="px-2 py-1">{{ formatTime(call.timestamp) }}</td>
+                    <td class="px-2 py-1">{{ call.tool }}</td>
+                    <td class="px-2 py-1">{{ call.client ? formatClientName(call.client) : '—' }}</td>
+                    <td class="px-2 py-1 text-right">{{ call.durationMs }}ms</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
           </div>
         </section>

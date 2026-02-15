@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tracing::info;
 use uuid::Uuid;
@@ -6,8 +6,12 @@ use uuid::Uuid;
 use crate::error::AppError;
 use crate::mcp::client::SharedConnections;
 use crate::mcp::proxy::ProxyState;
-use crate::persistence::save_servers;
-use crate::state::{ServerConfig, ServerStatus, ServerTransport, SharedState};
+use crate::persistence::{
+    load_openai_api_key, save_embedding_config, save_openai_api_key, save_servers,
+};
+use crate::state::{
+    EmbeddingConfig, EmbeddingProvider, ServerConfig, ServerStatus, ServerTransport, SharedState,
+};
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -18,7 +22,24 @@ pub struct MemoryStatus {
     pub docker_available: bool,
     pub redis_running: bool,
     pub ollama_running: bool,
+    pub embedding_provider: String,
+    pub embedding_model: String,
     pub error: Option<String>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EmbeddingConfigStatus {
+    pub config: EmbeddingConfig,
+    pub has_openai_key: bool,
+    pub pulled_ollama_models: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveEmbeddingConfigInput {
+    pub config: EmbeddingConfig,
+    pub openai_api_key: Option<String>,
 }
 
 async fn is_command_available(cmd: &str) -> bool {
@@ -113,6 +134,30 @@ async fn pull_ollama_model(app: &AppHandle, model: &str) -> Result<(), AppError>
     Ok(())
 }
 
+/// Query locally-running Ollama for pulled models (best-effort).
+async fn list_pulled_ollama_models() -> Vec<String> {
+    let output = match tokio::process::Command::new("docker")
+        .args(["exec", "mcp-manager-ollama", "ollama", "list"])
+        .output()
+        .await
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return Vec::new(),
+    };
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    stdout
+        .lines()
+        .skip(1) // skip header line
+        .filter_map(|line| {
+            let name = line.split_whitespace().next()?;
+            // Strip ":latest" tag to match our model names
+            let clean = name.strip_suffix(":latest").unwrap_or(name);
+            Some(clean.to_string())
+        })
+        .collect()
+}
+
 fn find_memory_server(servers: &[ServerConfig]) -> Option<&ServerConfig> {
     servers
         .iter()
@@ -123,8 +168,9 @@ fn find_memory_server(servers: &[ServerConfig]) -> Option<&ServerConfig> {
 pub async fn get_memory_status(
     state: State<'_, SharedState>,
 ) -> Result<MemoryStatus, AppError> {
-    let (enabled, server_status) = {
+    let (enabled, server_status, embedding_config) = {
         let s = state.lock().unwrap();
+        let config = s.embedding_config.clone();
         match find_memory_server(&s.servers) {
             Some(server) => (
                 true,
@@ -132,20 +178,30 @@ pub async fn get_memory_status(
                     .status
                     .as_ref()
                     .map(|st| format!("{st:?}").to_lowercase()),
+                config,
             ),
-            None => (false, None),
+            None => (false, None, config),
         }
     };
 
     let uvx_available = is_command_available("uvx").await;
     let docker_available = is_command_available("docker").await;
-    let (redis_running, ollama_running) = if docker_available {
-        tokio::join!(
-            is_container_running("mcp-manager-redis"),
-            is_container_running("mcp-manager-ollama"),
-        )
+
+    let redis_running = if docker_available {
+        is_container_running("mcp-manager-redis").await
     } else {
-        (false, false)
+        false
+    };
+
+    let ollama_running = if docker_available && embedding_config.provider == EmbeddingProvider::Ollama {
+        is_container_running("mcp-manager-ollama").await
+    } else {
+        false
+    };
+
+    let provider_str = match embedding_config.provider {
+        EmbeddingProvider::Ollama => "ollama",
+        EmbeddingProvider::Openai => "openai",
     };
 
     Ok(MemoryStatus {
@@ -155,8 +211,63 @@ pub async fn get_memory_status(
         docker_available,
         redis_running,
         ollama_running,
+        embedding_provider: provider_str.into(),
+        embedding_model: embedding_config.model,
         error: None,
     })
+}
+
+#[tauri::command]
+pub async fn get_embedding_config(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+) -> Result<EmbeddingConfigStatus, AppError> {
+    let config = {
+        let s = state.lock().unwrap();
+        s.embedding_config.clone()
+    };
+
+    let has_openai_key = load_openai_api_key(&app).is_some();
+    let pulled_ollama_models = list_pulled_ollama_models().await;
+
+    Ok(EmbeddingConfigStatus {
+        config,
+        has_openai_key,
+        pulled_ollama_models,
+    })
+}
+
+#[tauri::command]
+pub async fn save_embedding_config_cmd(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    input: SaveEmbeddingConfigInput,
+) -> Result<(), AppError> {
+    if input.config.dimensions == 0 {
+        return Err(AppError::Protocol("Dimensions must be greater than 0".into()));
+    }
+
+    // Save config to state + persistence
+    {
+        let mut s = state.lock().unwrap();
+        s.embedding_config = input.config.clone();
+    }
+    save_embedding_config(&app, &input.config);
+
+    // Save or clear OpenAI API key
+    if input.config.provider == EmbeddingProvider::Openai {
+        if let Some(key) = &input.openai_api_key {
+            if !key.is_empty() {
+                save_openai_api_key(&app, key);
+            }
+        }
+    }
+
+    info!(
+        "Saved embedding config: provider={:?}, model={}, dimensions={}",
+        input.config.provider, input.config.model, input.config.dimensions
+    );
+    Ok(())
 }
 
 #[tauri::command]
@@ -173,15 +284,15 @@ pub async fn enable_memory(
         return Err(AppError::DependencyNotFound("docker".into()));
     }
 
-    // Check if already enabled
-    {
+    let embedding_config = {
         let s = state.lock().unwrap();
         if find_memory_server(&s.servers).is_some() {
             return Err(AppError::Protocol("Memory is already enabled".into()));
         }
-    }
+        s.embedding_config.clone()
+    };
 
-    // Start Redis container
+    // Start Redis container (always needed)
     ensure_container(
         &app,
         "mcp-manager-redis",
@@ -194,38 +305,59 @@ pub async fn enable_memory(
     )
     .await?;
 
-    // Start Ollama container (with a named volume for model cache)
-    ensure_container(
-        &app,
-        "mcp-manager-ollama",
-        &[
-            "run", "-d",
-            "--name", "mcp-manager-ollama",
-            "-p", "11434:11434",
-            "-v", "mcp-manager-ollama:/root/.ollama",
-            "ollama/ollama",
-        ],
-    )
-    .await?;
-
-    // Wait briefly for Ollama to be ready before pulling models
-    emit_progress(&app, "Waiting for Ollama to start...");
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-
-    // Pull embedding model (~274MB, cached after first run)
-    pull_ollama_model(&app, "nomic-embed-text").await?;
-
-    emit_progress(&app, "Configuring memory server...");
+    // Build env vars based on embedding provider
     let mut env = std::collections::HashMap::new();
     env.insert("REDIS_URL".into(), "redis://localhost:6379".into());
     env.insert("LONG_TERM_MEMORY".into(), "true".into());
-    env.insert("EMBEDDING_MODEL".into(), "ollama/nomic-embed-text".into());
-    env.insert("OLLAMA_API_BASE".into(), "http://localhost:11434".into());
-    env.insert("REDISVL_VECTOR_DIMENSIONS".into(), "768".into());
+    env.insert(
+        "REDISVL_VECTOR_DIMENSIONS".into(),
+        embedding_config.dimensions.to_string(),
+    );
     // Disable generation features — embeddings-only, no LLM needed
     env.insert("ENABLE_TOPIC_EXTRACTION".into(), "false".into());
     env.insert("ENABLE_NER".into(), "false".into());
     env.insert("ENABLE_DISCRETE_MEMORY_EXTRACTION".into(), "false".into());
+
+    match embedding_config.provider {
+        EmbeddingProvider::Ollama => {
+            // Start Ollama container
+            ensure_container(
+                &app,
+                "mcp-manager-ollama",
+                &[
+                    "run", "-d",
+                    "--name", "mcp-manager-ollama",
+                    "-p", "11434:11434",
+                    "-v", "mcp-manager-ollama:/root/.ollama",
+                    "ollama/ollama",
+                ],
+            )
+            .await?;
+
+            // Wait briefly for Ollama to be ready before pulling models
+            emit_progress(&app, "Waiting for Ollama to start...");
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+            // Pull embedding model
+            pull_ollama_model(&app, &embedding_config.model).await?;
+
+            env.insert(
+                "EMBEDDING_MODEL".into(),
+                format!("ollama/{}", embedding_config.model),
+            );
+            env.insert("OLLAMA_API_BASE".into(), "http://localhost:11434".into());
+        }
+        EmbeddingProvider::Openai => {
+            let api_key = load_openai_api_key(&app).ok_or_else(|| {
+                AppError::Protocol("OpenAI API key not configured. Save your API key in embedding settings first.".into())
+            })?;
+
+            env.insert("EMBEDDING_MODEL".into(), embedding_config.model.clone());
+            env.insert("OPENAI_API_KEY".into(), api_key);
+        }
+    }
+
+    emit_progress(&app, "Configuring memory server...");
 
     let server = ServerConfig {
         id: Uuid::new_v4().to_string(),
@@ -267,11 +399,11 @@ pub async fn disable_memory(
     state: State<'_, SharedState>,
     connections: State<'_, SharedConnections>,
 ) -> Result<(), AppError> {
-    let server_id = {
+    let (provider, server_id) = {
         let s = state.lock().unwrap();
-        find_memory_server(&s.servers)
-            .map(|s| s.id.clone())
-            .ok_or_else(|| AppError::Protocol("Memory is not enabled".into()))?
+        let server = find_memory_server(&s.servers)
+            .ok_or_else(|| AppError::Protocol("Memory is not enabled".into()))?;
+        (s.embedding_config.provider.clone(), server.id.clone())
     };
 
     // Disconnect if connected
@@ -307,13 +439,27 @@ pub async fn disable_memory(
     // Stop and remove containers (best-effort)
     emit_progress(&app, "Stopping containers...");
     info!("Stopping memory containers");
-    for name in ["mcp-manager-redis", "mcp-manager-ollama"] {
+
+    // Always stop Redis
+    for name in ["mcp-manager-redis"] {
         let _ = tokio::process::Command::new("docker")
             .args(["stop", name])
             .output()
             .await;
         let _ = tokio::process::Command::new("docker")
             .args(["rm", name])
+            .output()
+            .await;
+    }
+
+    // Only stop Ollama if provider is Ollama
+    if provider == EmbeddingProvider::Ollama {
+        let _ = tokio::process::Command::new("docker")
+            .args(["stop", "mcp-manager-ollama"])
+            .output()
+            .await;
+        let _ = tokio::process::Command::new("docker")
+            .args(["rm", "mcp-manager-ollama"])
             .output()
             .await;
     }
