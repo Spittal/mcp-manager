@@ -160,6 +160,14 @@ impl McpClient {
         Ok(call_result)
     }
 
+    /// Return the PID of the underlying process, if using stdio transport.
+    pub fn pid(&self) -> Option<u32> {
+        match &self.transport {
+            Transport::Stdio(t) => Some(t.pid()),
+            Transport::Http(_) => None,
+        }
+    }
+
     /// Shut down the client.
     pub fn shutdown(&self) {
         match &self.transport {
@@ -231,6 +239,14 @@ impl McpConnections {
 
     pub fn get(&self, id: &str) -> Option<&McpClient> {
         self.clients.get(id)
+    }
+
+    /// Return (server_id, pid) for all connected stdio clients.
+    pub fn pids(&self) -> Vec<(String, u32)> {
+        self.clients
+            .iter()
+            .filter_map(|(id, client)| client.pid().map(|pid| (id.clone(), pid)))
+            .collect()
     }
 }
 

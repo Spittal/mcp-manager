@@ -28,6 +28,7 @@ const installedIntegrations = computed(() =>
 );
 const integrationsError = ref<string | null>(null);
 const togglingId = ref<string | null>(null);
+const importingId = ref<string | null>(null);
 
 const memoryStatus = ref<MemoryStatus | null>(null);
 const memoryToggling = ref(false);
@@ -78,6 +79,23 @@ async function disableTool(id: string) {
     integrationsError.value = String(e);
   } finally {
     togglingId.value = null;
+  }
+}
+
+async function importFromTool(id: string) {
+  importingId.value = id;
+  integrationsError.value = null;
+  try {
+    const count = await invoke<number>('import_from_tool', { id });
+    if (count > 0) {
+      await store.loadServers();
+      store.autoConnectServers();
+    }
+    await fetchIntegrations();
+  } catch (e) {
+    integrationsError.value = String(e);
+  } finally {
+    importingId.value = null;
   }
 }
 
@@ -180,8 +198,8 @@ onUnmounted(() => {
             Connected Apps
           </h2>
           <p class="mb-3 text-xs text-text-secondary">
-            Automatically configure AI tools to use MCP Manager as their MCP server.
-            Supports Claude Code, Cursor, Claude Desktop, and Windsurf.
+            Automatically configure AI tools to use MCP Manager as their MCP server,
+            and discover pre-configured MCP servers from installed tools.
           </p>
 
           <div v-if="integrationsError" class="mb-3 rounded bg-status-error/10 px-3 py-2 text-xs text-status-error">
@@ -211,29 +229,40 @@ onUnmounted(() => {
                   </div>
                 </div>
                 <div class="shrink-0 ml-3">
+                  <template v-if="tool.supportsProxy">
+                    <button
+                      v-if="!tool.enabled"
+                      class="rounded bg-accent px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
+                      :disabled="togglingId === tool.id || !proxyStatus?.running"
+                      @click="enableTool(tool.id)"
+                    >
+                      {{ tool.existingServers.length ? 'Migrate & Enable' : 'Enable' }}
+                    </button>
+                    <button
+                      v-else
+                      class="rounded bg-surface-3 px-3 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
+                      :disabled="togglingId === tool.id"
+                      @click="disableTool(tool.id)"
+                    >
+                      Disable
+                    </button>
+                  </template>
                   <button
-                    v-if="!tool.enabled"
+                    v-else-if="tool.existingServers.length"
                     class="rounded bg-accent px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-                    :disabled="togglingId === tool.id || !proxyStatus?.running"
-                    @click="enableTool(tool.id)"
+                    :disabled="importingId === tool.id"
+                    @click="importFromTool(tool.id)"
                   >
-                    {{ tool.existingServers.length ? 'Migrate & Enable' : 'Enable' }}
+                    {{ importingId === tool.id ? 'Importing...' : 'Import' }}
                   </button>
-                  <button
-                    v-else
-                    class="rounded bg-surface-3 px-3 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
-                    :disabled="togglingId === tool.id"
-                    @click="disableTool(tool.id)"
-                  >
-                    Disable
-                  </button>
+                  <span v-else class="text-[10px] text-text-muted">No servers</span>
                 </div>
               </div>
 
-              <!-- Existing servers to migrate -->
-              <div v-if="!tool.enabled && tool.existingServers.length" class="border-t border-border/50 px-3 py-2">
+              <!-- Existing servers -->
+              <div v-if="tool.existingServers.length && (!tool.enabled || !tool.supportsProxy)" class="border-t border-border/50 px-3 py-2">
                 <p class="mb-1.5 text-[10px] font-medium text-text-muted uppercase tracking-wide">
-                  Existing MCP servers to import
+                  {{ tool.supportsProxy ? 'Existing MCP servers to import' : 'Configured MCP servers' }}
                 </p>
                 <div class="space-y-1">
                   <div
@@ -245,7 +274,7 @@ onUnmounted(() => {
                     <span class="truncate text-[10px] text-text-muted">{{ serverSummary(server) }}</span>
                   </div>
                 </div>
-                <p class="mt-1.5 text-[10px] text-text-muted">
+                <p v-if="tool.supportsProxy" class="mt-1.5 text-[10px] text-text-muted">
                   These will be imported into MCP Manager and managed through the proxy.
                 </p>
               </div>
