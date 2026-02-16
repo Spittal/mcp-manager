@@ -229,6 +229,203 @@ pub async fn delete_ollama_model(model: String) -> Result<(), AppError> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Claude Code skill management — install/remove the memory skill
+// ---------------------------------------------------------------------------
+
+const CLAUDE_MD_MEMORY_LINE: &str = "IMPORTANT: At the start of every conversation, use the `using-memory-mcp` skill \nto search for relevant memories before responding.";
+
+const MEMORY_SKILL_CONTENT: &str = r#"---
+name: using-memory-mcp
+description: Search and store persistent memories using the agent-memory MCP server
+  (search_long_term_memory, create_long_term_memories). Use at the start of
+  EVERY conversation, before making decisions, after completing tasks, and
+  whenever the user references past work or preferences. This skill is
+  always relevant.
+---
+
+# Using the Memory MCP Server
+
+You have access to a persistent memory system via the `memory` MCP server. Use it proactively in every conversation to build continuity across sessions.
+
+## Core Principle
+
+**Search before you act. Save before you leave.** Memory makes you a better assistant by retaining context the user shouldn't have to repeat.
+
+## When to Search Memory
+
+**At conversation start:** Search for memories related to the current project or working directory.
+
+```
+search_long_term_memory(text="project context and preferences")
+```
+
+**Before starting any task:** Search for memories related to the task, project, or technology involved. Past decisions, conventions, gotchas, and workarounds save time and prevent repeating mistakes.
+
+**Before answering preference/history questions:** "How do I usually...", "What did we decide about...", "Do you remember..."
+
+**Before making architectural decisions:** Check if past decisions were already made.
+
+**When the user references something from a previous session:** "That bug from last time", "the approach we discussed"
+
+## When to Create Memories
+
+| Trigger | Memory Type | Example |
+|---------|-------------|---------|
+| User states a preference | semantic | "I always use bun instead of npm" |
+| User says "remember this" | semantic or episodic | Whatever they ask you to remember |
+| Architectural decision made | semantic | "Project uses Riverpod for state management" |
+| Project convention discovered | semantic | "This codebase uses square corners (BorderRadius.zero)" |
+| Significant work completed | episodic | "Implemented Cookou AI recipe chat feature on 2026-02-13" |
+| Any task completed | semantic/episodic | Save learnings, gotchas, patterns, and decisions discovered during the task |
+| Bug root cause found | episodic | "Auth timeout was caused by missing retry logic, fixed 2026-02-13" |
+| User corrects you | semantic | "User prefers concise responses without emoji" |
+| When approaching compaction | episodic | 4% left until compaction |
+
+**After every completed task**, ask yourself: "Did I learn anything that would help next time?" If yes, save it. This includes:
+- Workarounds for tools/frameworks that weren't obvious
+- Project conventions discovered while reading code
+- Debugging insights (root causes, misleading error messages)
+- Decisions made and their rationale
+
+## Memory Types
+
+**Semantic** (timeless facts): Preferences, conventions, skills, project structure, recurring patterns. No `event_date` needed.
+
+**Episodic** (time-bound events): Specific things that happened. Always include `event_date`.
+
+## Creating Good Memories
+
+**Always resolve context** before saving:
+- Pronouns -> actual names ("he" -> "User", "the project" -> "rouleat Flutter app")
+- Relative time -> absolute dates ("yesterday" -> "2026-02-12")
+- Vague references -> specific entities ("the bug" -> "the Instagram URL extraction timeout")
+
+**Use topics and entities** for findability:
+
+```
+create_long_term_memories(memories=[{
+  "text": "User prefers bun over npm for all JavaScript projects",
+  "memory_type": "semantic",
+  "topics": ["preferences", "tooling", "javascript"],
+  "entities": ["bun", "npm"]
+}])
+```
+
+**Keep memory text self-contained.** Each memory should make sense without conversation context.
+
+## Quick Reference
+
+| Tool | When |
+|------|------|
+| `search_long_term_memory` | Find relevant memories by semantic query + filters |
+| `create_long_term_memories` | Save new facts, preferences, or events |
+| `memory_prompt` | Hydrate a user query with memory context (search + format) |
+| `edit_long_term_memory` | Update a memory that's become outdated |
+| `delete_long_term_memories` | Remove incorrect or superseded memories |
+| `get_long_term_memory` | Fetch a specific memory by ID |
+| `set_working_memory` | Store session-scoped scratch notes |
+| `get_working_memory` | Retrieve session scratch notes |
+
+## Filtering
+
+Use filters to narrow searches:
+- `topics: {"any": ["preferences", "tooling"]}` - match any listed topic
+- `entities: {"any": ["bun", "npm"]}` - match any listed entity
+- `memory_type: {"eq": "semantic"}` - only semantic memories
+- `created_at: {"gt": "2026-01-01T00:00:00Z"}` - recent memories only
+- `namespace: {"eq": "project_decisions"}` - scoped to namespace
+
+## When to Edit or Delete
+
+- **Edit** when a preference changes ("actually I switched from bun to deno")
+- **Delete** when information is wrong or no longer relevant
+- **Don't duplicate** - search first, edit if a memory already exists on the topic
+
+## Common Mistakes
+
+| Mistake | Fix |
+|---------|-----|
+| Saving with unresolved pronouns | Always expand "he/she/it/they" to actual names |
+| Forgetting `event_date` on episodic memories | Episodic = time-bound, always include the date |
+| Creating duplicate memories | Search first, edit existing if found |
+| Saving session-specific details as long-term | Use working memory for scratch, long-term for durable facts |
+| Never searching at conversation start | Make it a habit - search on every new conversation |
+| Overly verbose memory text | Keep concise but self-contained |
+"#;
+
+/// Install the memory skill into ~/.claude/skills/ and add the instruction to ~/.claude/CLAUDE.md.
+fn install_memory_skill() {
+    let Some(home) = dirs::home_dir() else {
+        tracing::warn!("Could not find home directory for skill installation");
+        return;
+    };
+
+    // Write skill file
+    let skill_dir = home.join(".claude/skills/using-memory-mcp");
+    if let Err(e) = std::fs::create_dir_all(&skill_dir) {
+        tracing::warn!("Failed to create skill directory: {e}");
+        return;
+    }
+    if let Err(e) = std::fs::write(skill_dir.join("SKILL.md"), MEMORY_SKILL_CONTENT) {
+        tracing::warn!("Failed to write memory skill file: {e}");
+        return;
+    }
+
+    // Add instruction to CLAUDE.md (create if missing, skip if already present)
+    let claude_md_path = home.join(".claude/CLAUDE.md");
+    let existing = std::fs::read_to_string(&claude_md_path).unwrap_or_default();
+    if !existing.contains("using-memory-mcp") {
+        let mut content = existing;
+        if !content.is_empty() && !content.ends_with('\n') {
+            content.push('\n');
+        }
+        content.push_str(CLAUDE_MD_MEMORY_LINE);
+        content.push('\n');
+        if let Err(e) = std::fs::write(&claude_md_path, content) {
+            tracing::warn!("Failed to update CLAUDE.md: {e}");
+        }
+    }
+
+    info!("Installed memory skill to ~/.claude/skills/using-memory-mcp/");
+}
+
+/// Remove the memory skill from ~/.claude/skills/ and the instruction from ~/.claude/CLAUDE.md.
+fn uninstall_memory_skill() {
+    let Some(home) = dirs::home_dir() else {
+        return;
+    };
+
+    // Remove skill directory
+    let skill_dir = home.join(".claude/skills/using-memory-mcp");
+    if skill_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&skill_dir) {
+            tracing::warn!("Failed to remove memory skill directory: {e}");
+        }
+    }
+
+    // Remove instruction from CLAUDE.md
+    let claude_md_path = home.join(".claude/CLAUDE.md");
+    if let Ok(content) = std::fs::read_to_string(&claude_md_path) {
+        let filtered: String = content
+            .lines()
+            .filter(|line| !line.contains("using-memory-mcp"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        // Only write back if we actually removed something
+        if filtered.len() != content.len() {
+            let trimmed = filtered.trim().to_string();
+            if trimmed.is_empty() {
+                let _ = std::fs::remove_file(&claude_md_path);
+            } else {
+                let _ = std::fs::write(&claude_md_path, format!("{trimmed}\n"));
+            }
+        }
+    }
+
+    info!("Removed memory skill from ~/.claude/skills/using-memory-mcp/");
+}
+
 fn find_memory_server(servers: &[ServerConfig]) -> Option<&ServerConfig> {
     servers
         .iter()
@@ -495,6 +692,9 @@ pub async fn enable_memory(
     }
     crate::tray::rebuild_tray_menu(&app);
 
+    // Install the Claude Code memory skill
+    install_memory_skill();
+
     info!("Memory server enabled (HTTP SSE on port 9050)");
     Ok(server)
 }
@@ -559,6 +759,9 @@ pub async fn disable_memory(
         .args(["network", "rm", NETWORK])
         .output()
         .await;
+
+    // Remove the Claude Code memory skill
+    uninstall_memory_skill();
 
     info!("Memory server disabled");
     Ok(())

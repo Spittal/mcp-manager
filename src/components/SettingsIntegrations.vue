@@ -11,7 +11,6 @@ const integrations = ref<AiToolInfo[] | null>(null);
 const proxyStatus = ref<ProxyStatus | null>(null);
 const error = ref<string | null>(null);
 const togglingId = ref<string | null>(null);
-const importingId = ref<string | null>(null);
 
 const installedTools = computed(() =>
   integrations.value?.filter(t => t.installed) ?? []
@@ -35,33 +34,16 @@ async function fetchProxyStatus() {
 }
 
 async function migrateAndEnable(tool: AiToolInfo) {
-  if (tool.supportsProxy) {
-    togglingId.value = tool.id;
-    try {
-      await invoke('enable_integration', { id: tool.id });
-      await store.loadServers();
-      store.autoConnectServers();
-      await fetchIntegrations();
-    } catch (e) {
-      error.value = String(e);
-    } finally {
-      togglingId.value = null;
-    }
-  } else {
-    importingId.value = tool.id;
-    error.value = null;
-    try {
-      const count = await invoke<number>('import_from_tool', { id: tool.id });
-      if (count > 0) {
-        await store.loadServers();
-        store.autoConnectServers();
-      }
-      await fetchIntegrations();
-    } catch (e) {
-      error.value = String(e);
-    } finally {
-      importingId.value = null;
-    }
+  togglingId.value = tool.id;
+  try {
+    await invoke('enable_integration', { id: tool.id });
+    await store.loadServers();
+    store.autoConnectServers();
+    await fetchIntegrations();
+  } catch (e) {
+    error.value = String(e);
+  } finally {
+    togglingId.value = null;
   }
 }
 
@@ -88,12 +70,7 @@ function serverSummary(server: AiToolInfo['existingServers'][number]): string {
 }
 
 function isBusy(tool: AiToolInfo): boolean {
-  return togglingId.value === tool.id || importingId.value === tool.id;
-}
-
-function busyLabel(tool: AiToolInfo): string {
-  if (tool.supportsProxy) return 'Migrating...';
-  return 'Importing...';
+  return togglingId.value === tool.id;
 }
 
 onMounted(() => {
@@ -125,8 +102,8 @@ onMounted(() => {
             <div class="flex items-center justify-between px-3 py-2.5">
               <div class="min-w-0">
                 <span class="truncate text-[10px] text-text-muted">{{ tool.configPath }}</span>
-                <!-- Port status for enabled proxy tools -->
-                <div v-if="tool.enabled && tool.supportsProxy" class="mt-0.5">
+                <!-- Port status for enabled tools -->
+                <div v-if="tool.enabled && tool.configuredPort" class="mt-0.5">
                   <span
                     v-if="proxyStatus && tool.configuredPort !== proxyStatus.port"
                     class="text-[10px] text-status-connecting"
@@ -147,23 +124,23 @@ onMounted(() => {
                 <button
                   v-else-if="tool.existingServers.length"
                   class="rounded bg-accent px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
-                  :disabled="isBusy(tool) || (tool.supportsProxy && !(proxyStatus?.running ?? false))"
+                  :disabled="isBusy(tool) || !(proxyStatus?.running ?? false)"
                   @click="migrateAndEnable(tool)"
                 >
-                  {{ isBusy(tool) ? busyLabel(tool) : 'Migrate & Enable' }}
+                  {{ isBusy(tool) ? 'Migrating...' : 'Migrate & Enable' }}
                 </button>
-                <!-- Enable (no servers to migrate): proxy tools only -->
+                <!-- Enable (no servers to migrate) -->
                 <button
-                  v-else-if="!tool.enabled && tool.supportsProxy"
+                  v-else-if="!tool.enabled"
                   class="rounded bg-accent px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover disabled:opacity-50"
                   :disabled="isBusy(tool) || !(proxyStatus?.running ?? false)"
                   @click="migrateAndEnable(tool)"
                 >
                   {{ isBusy(tool) ? 'Enabling...' : 'Enable' }}
                 </button>
-                <!-- Disable: enabled proxy tools -->
+                <!-- Disable -->
                 <button
-                  v-if="tool.enabled && tool.supportsProxy"
+                  v-if="tool.enabled"
                   class="rounded bg-surface-3 px-3 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2 disabled:opacity-50"
                   :disabled="isBusy(tool)"
                   @click="disable(tool)"

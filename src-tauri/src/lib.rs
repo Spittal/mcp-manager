@@ -84,7 +84,6 @@ pub fn run() {
             commands::tools::call_tool,
             commands::proxy::get_proxy_status,
             commands::integrations::detect_integrations,
-            commands::integrations::import_from_tool,
             commands::integrations::enable_integration,
             commands::integrations::disable_integration,
             commands::oauth::start_oauth_flow,

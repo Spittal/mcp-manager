@@ -31,8 +31,6 @@ struct ToolDef {
     config_path: PathBuf,
     detection_paths: Vec<PathBuf>,
     config_format: ConfigFormat,
-    /// Whether this tool supports writing the mcp-manager proxy entry.
-    supports_proxy: bool,
 }
 
 /// An existing MCP server found in a tool's config file.
@@ -60,22 +58,18 @@ pub struct AiToolInfo {
     pub enabled: bool,
     pub config_path: String,
     pub configured_port: u16,
-    /// Whether this tool supports the proxy enable/disable flow.
-    pub supports_proxy: bool,
     /// Existing MCP servers in this tool's config that could be imported.
     pub existing_servers: Vec<ExistingMcpServer>,
 }
 
 fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
     let mut tools = vec![
-        // --- Proxy-enabled tools (can write mcp-manager entry) ---
         ToolDef {
             id: "claude-code".into(),
             name: "Claude Code".into(),
             config_path: home.join(".claude").join("mcp.json"),
             detection_paths: vec![home.join(".claude")],
             config_format: ConfigFormat::McpServers,
-            supports_proxy: true,
         },
         ToolDef {
             id: "cursor".into(),
@@ -86,7 +80,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
                 PathBuf::from("/Applications/Cursor.app"),
             ],
             config_format: ConfigFormat::McpServers,
-            supports_proxy: true,
         },
         ToolDef {
             id: "claude-desktop".into(),
@@ -95,7 +88,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
                 .join("Library/Application Support/Claude/claude_desktop_config.json"),
             detection_paths: vec![PathBuf::from("/Applications/Claude.app")],
             config_format: ConfigFormat::McpServers,
-            supports_proxy: true,
         },
     ];
 
@@ -118,10 +110,7 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
             PathBuf::from("/Applications/Windsurf.app"),
         ],
         config_format: ConfigFormat::McpServers,
-        supports_proxy: true,
     });
-
-    // --- Read-only sources (detect servers but don't write proxy config) ---
 
     tools.push(ToolDef {
         id: "mcp-json".into(),
@@ -130,7 +119,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
         // Always "installed" — just check if the file exists
         detection_paths: vec![home.join(".mcp.json")],
         config_format: ConfigFormat::McpServers,
-        supports_proxy: false,
     });
 
     tools.push(ToolDef {
@@ -139,7 +127,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
         config_path: home.join(".claude.json"),
         detection_paths: vec![home.join(".claude.json")],
         config_format: ConfigFormat::McpServers,
-        supports_proxy: false,
     });
 
     tools.push(ToolDef {
@@ -148,7 +135,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
         config_path: home.join(".config/opencode/opencode.json"),
         detection_paths: vec![home.join(".config/opencode")],
         config_format: ConfigFormat::OpenCode,
-        supports_proxy: false,
     });
 
     tools.push(ToolDef {
@@ -157,7 +143,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
         config_path: home.join(".codex/config.toml"),
         detection_paths: vec![home.join(".codex")],
         config_format: ConfigFormat::CodexToml,
-        supports_proxy: false,
     });
 
     tools.push(ToolDef {
@@ -169,7 +154,6 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
             PathBuf::from("/Applications/Zed.app"),
         ],
         config_format: ConfigFormat::Zed,
-        supports_proxy: false,
     });
 
     tools
@@ -264,53 +248,6 @@ fn parse_mcp_servers(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
     (enabled, port, existing)
 }
 
-/// Parse a JSON MCP server entry into a ServerConfig for import.
-fn server_config_from_json(key: &str, value: &serde_json::Value) -> ServerConfig {
-    let has_url = value.get("url").and_then(|v| v.as_str()).is_some();
-
-    ServerConfig {
-        id: Uuid::new_v4().to_string(),
-        name: key.to_string(),
-        enabled: true,
-        transport: if has_url {
-            ServerTransport::Http
-        } else {
-            ServerTransport::Stdio
-        },
-        command: value
-            .get("command")
-            .and_then(|v| v.as_str())
-            .map(String::from),
-        args: value.get("args").and_then(|v| v.as_array()).map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        }),
-        env: value.get("env").and_then(|v| v.as_object()).map(|obj| {
-            obj.iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                .collect::<HashMap<String, String>>()
-        }),
-        url: if has_url {
-            value.get("url").and_then(|v| v.as_str()).map(String::from)
-        } else {
-            None
-        },
-        headers: value
-            .get("headers")
-            .and_then(|v| v.as_object())
-            .map(|obj| {
-                obj.iter()
-                    .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                    .collect::<HashMap<String, String>>()
-            }),
-        tags: None,
-        status: Some(ServerStatus::Disconnected),
-        last_connected: None,
-        managed: None,
-    }
-}
-
 /// OpenCode format: {"mcp": {"name": {"type":"local","command":[...],"environment":{...}}}}
 fn parse_opencode(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
     let content = match std::fs::read_to_string(path) {
@@ -327,9 +264,21 @@ fn parse_opencode(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
         None => return (false, 0, Vec::new()),
     };
 
+    let mut enabled = false;
+    let mut port = 0u16;
     let mut existing = Vec::new();
 
     for (key, value) in servers_obj {
+        let entry_url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
+
+        if is_proxy_url(entry_url) {
+            enabled = true;
+            if port == 0 {
+                port = extract_port_from_url(entry_url);
+            }
+            continue;
+        }
+
         let server_type = value
             .get("type")
             .and_then(|v| v.as_str())
@@ -367,8 +316,7 @@ fn parse_opencode(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
         });
     }
 
-    // OpenCode doesn't support our proxy entry, so never "enabled"
-    (false, 0, existing)
+    (enabled, port, existing)
 }
 
 /// Zed format: {"context_servers": {"name": {"command":"...","args":[...],"env":{...}}}}
@@ -389,10 +337,22 @@ fn parse_zed(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
         None => return (false, 0, Vec::new()),
     };
 
+    let mut enabled = false;
+    let mut port = 0u16;
     let mut existing = Vec::new();
 
     for (key, value) in servers_obj {
-        let has_url = value.get("url").and_then(|v| v.as_str()).is_some();
+        let entry_url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
+
+        if is_proxy_url(entry_url) {
+            enabled = true;
+            if port == 0 {
+                port = extract_port_from_url(entry_url);
+            }
+            continue;
+        }
+
+        let has_url = !entry_url.is_empty();
 
         // Zed uses the same flat format: command, args, env at top level
         existing.push(ExistingMcpServer {
@@ -405,14 +365,14 @@ fn parse_zed(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
                     .collect()
             }),
             url: if has_url {
-                value.get("url").and_then(|v| v.as_str()).map(String::from)
+                Some(entry_url.to_string())
             } else {
                 None
             },
         });
     }
 
-    (false, 0, existing)
+    (enabled, port, existing)
 }
 
 /// Codex TOML format: [mcp_servers.name] with command, args, url, etc.
@@ -431,10 +391,22 @@ fn parse_codex_toml(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
         None => return (false, 0, Vec::new()),
     };
 
+    let mut enabled = false;
+    let mut port = 0u16;
     let mut existing = Vec::new();
 
     for (key, value) in servers_table {
-        let has_url = value.get("url").and_then(|v| v.as_str()).is_some();
+        let entry_url = value.get("url").and_then(|v| v.as_str()).unwrap_or("");
+
+        if is_proxy_url(entry_url) {
+            enabled = true;
+            if port == 0 {
+                port = extract_port_from_url(entry_url);
+            }
+            continue;
+        }
+
+        let has_url = !entry_url.is_empty();
 
         existing.push(ExistingMcpServer {
             name: key.clone(),
@@ -446,14 +418,14 @@ fn parse_codex_toml(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
                     .collect()
             }),
             url: if has_url {
-                value.get("url").and_then(|v| v.as_str()).map(String::from)
+                Some(entry_url.to_string())
             } else {
                 None
             },
         });
     }
 
-    (false, 0, existing)
+    (enabled, port, existing)
 }
 
 // ---------------------------------------------------------------------------
@@ -491,9 +463,15 @@ fn import_mcp_servers(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
     };
     let mut result = Vec::new();
     for (key, value) in servers_obj {
+        // Skip legacy mcp-manager entry and proxy URLs
         if key == "mcp-manager" {
             continue;
         }
+        let entry_url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        if is_proxy_url(entry_url) {
+            continue;
+        }
+
         let has_url = value.get("url").and_then(|v| v.as_str()).is_some();
         result.push(ServerConfig {
             id: Uuid::new_v4().to_string(),
@@ -526,6 +504,11 @@ fn import_opencode(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
     };
     let mut result = Vec::new();
     for (key, value) in servers_obj {
+        let entry_url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        if is_proxy_url(entry_url) {
+            continue;
+        }
+
         let server_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("local");
         let is_remote = server_type == "remote";
 
@@ -571,7 +554,12 @@ fn import_zed(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
     };
     let mut result = Vec::new();
     for (key, value) in servers_obj {
-        let has_url = value.get("url").and_then(|v| v.as_str()).is_some();
+        let entry_url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
+        if is_proxy_url(entry_url) {
+            continue;
+        }
+
+        let has_url = !entry_url.is_empty();
         result.push(ServerConfig {
             id: Uuid::new_v4().to_string(),
             name: key.clone(),
@@ -582,7 +570,7 @@ fn import_zed(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
                 arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
             }),
             env: json_obj_to_env(value, "env"),
-            url: if has_url { value.get("url").and_then(|v| v.as_str()).map(String::from) } else { None },
+            url: if has_url { Some(entry_url.to_string()) } else { None },
             headers: json_obj_to_env(value, "headers"),
             tags: None,
             status: Some(ServerStatus::Disconnected),
@@ -603,7 +591,12 @@ fn import_codex_toml(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
     };
     let mut result = Vec::new();
     for (key, value) in servers_table {
-        let has_url = value.get("url").and_then(|v| v.as_str()).is_some();
+        let entry_url = value.get("url").and_then(|v| v.as_str()).unwrap_or("");
+        if is_proxy_url(entry_url) {
+            continue;
+        }
+
+        let has_url = !entry_url.is_empty();
 
         let env = value.get("env").and_then(|v| v.as_table()).map(|t| {
             t.iter()
@@ -621,7 +614,7 @@ fn import_codex_toml(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
                 arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
             }),
             env,
-            url: if has_url { value.get("url").and_then(|v| v.as_str()).map(String::from) } else { None },
+            url: if has_url { Some(entry_url.to_string()) } else { None },
             headers: None,
             tags: None,
             status: Some(ServerStatus::Disconnected),
@@ -712,6 +705,22 @@ fn home_dir() -> Result<PathBuf, AppError> {
     })
 }
 
+/// Build proxy URL entries for all currently connected servers.
+fn connected_proxy_urls(app: &AppHandle, port: u16, tool_id: &str) -> Vec<(String, String)> {
+    let state = app.state::<SharedState>();
+    let s = state.lock().unwrap();
+    s.servers
+        .iter()
+        .filter(|srv| srv.status == Some(ServerStatus::Connected))
+        .map(|srv| {
+            (
+                srv.name.clone(),
+                format!("http://localhost:{port}/mcp/{}?client={tool_id}", srv.id),
+            )
+        })
+        .collect()
+}
+
 // ---------------------------------------------------------------------------
 // Tauri commands
 // ---------------------------------------------------------------------------
@@ -748,7 +757,6 @@ pub async fn detect_integrations(
             enabled,
             config_path: tool.config_path.display().to_string(),
             configured_port,
-            supports_proxy: tool.supports_proxy,
             existing_servers,
         });
     }
@@ -757,16 +765,20 @@ pub async fn detect_integrations(
 }
 
 #[tauri::command]
-pub async fn import_from_tool(
+pub async fn enable_integration(
     app: AppHandle,
+    proxy_state: State<'_, ProxyState>,
     state: State<'_, SharedState>,
     id: String,
-) -> Result<usize, AppError> {
+) -> Result<AiToolInfo, AppError> {
     let home = home_dir()?;
     let tool = find_tool_def(&home, &id)?;
+    let port = proxy_state.port().await;
+
+    // Import existing servers from the config file (format-agnostic)
     let candidates = read_importable_servers(&tool)?;
 
-    let imported = {
+    let imported_count = {
         let mut s = state.lock().unwrap();
         let existing_names: Vec<String> = s.servers.iter().map(|srv| srv.name.clone()).collect();
 
@@ -781,99 +793,16 @@ pub async fn import_from_tool(
             imported += 1;
         }
 
-        if imported > 0 {
-            save_servers(&app, &s.servers);
-        }
-
-        // Mark this tool as managed (even if 0 new servers — they were already imported before)
-        if !s.enabled_integrations.contains(&id) {
-            s.enabled_integrations.push(id.clone());
-            save_enabled_integrations(&app, &s.enabled_integrations);
-        }
-
-        imported
-    }; // lock dropped here — rebuild_tray_menu also acquires it
-
-    if imported > 0 {
-        crate::tray::rebuild_tray_menu(&app);
-    }
-
-    info!("Imported {imported} server(s) from {}", tool.name);
-    Ok(imported)
-}
-
-#[tauri::command]
-pub async fn enable_integration(
-    app: AppHandle,
-    proxy_state: State<'_, ProxyState>,
-    state: State<'_, SharedState>,
-    id: String,
-) -> Result<AiToolInfo, AppError> {
-    let home = home_dir()?;
-    let tool = find_tool_def(&home, &id)?;
-
-    if !tool.supports_proxy {
-        return Err(AppError::Protocol(format!(
-            "{} does not support proxy integration",
-            tool.name
-        )));
-    }
-
-    let port = proxy_state.port().await;
-
-    // Read existing config to find servers to migrate
-    let existing_config: serde_json::Value = if tool.config_path.exists() {
-        let content = std::fs::read_to_string(&tool.config_path)?;
-        serde_json::from_str(&content).unwrap_or(serde_json::json!({}))
-    } else {
-        serde_json::json!({})
-    };
-
-    // Import existing MCP servers into MCP Manager
-    let mut imported_count = 0;
-    if let Some(servers_obj) = existing_config.get("mcpServers").and_then(|v| v.as_object()) {
-        let mut s = state.lock().unwrap();
-        let existing_names: Vec<String> = s.servers.iter().map(|srv| srv.name.clone()).collect();
-
-        for (key, value) in servers_obj {
-            // Skip the legacy mcp-manager entry
-            if key == "mcp-manager" {
-                continue;
-            }
-
-            // Skip entries that point to our proxy
-            let entry_url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
-            if is_proxy_url(entry_url) {
-                continue;
-            }
-
-            // Skip if a server with this name already exists in MCP Manager
-            if existing_names.contains(key) {
-                info!("Skipping import of '{key}' — already exists in MCP Manager");
-                continue;
-            }
-
-            let server = server_config_from_json(key, value);
-            info!("Imported MCP server '{}' from {}", key, tool.name);
-            s.servers.push(server);
-            imported_count += 1;
-        }
-
-        // Add this integration to enabled list
+        // Mark this tool as managed
         if !s.enabled_integrations.contains(&id) {
             s.enabled_integrations.push(id.clone());
         }
 
         save_servers(&app, &s.servers);
         save_enabled_integrations(&app, &s.enabled_integrations);
-    } else {
-        // No servers to import, just enable the integration
-        let mut s = state.lock().unwrap();
-        if !s.enabled_integrations.contains(&id) {
-            s.enabled_integrations.push(id.clone());
-        }
-        save_enabled_integrations(&app, &s.enabled_integrations);
-    }
+
+        imported
+    }; // lock dropped here
 
     if imported_count > 0 {
         info!(
@@ -883,8 +812,8 @@ pub async fn enable_integration(
         crate::tray::rebuild_tray_menu(&app);
     }
 
-    // Write per-server proxy entries for all currently connected servers
-    write_per_server_config(&app, &tool.config_path, port, &tool.id)?;
+    // Write proxy entries for all currently connected servers
+    write_managed_config(&app, &tool.config_path, port, &tool.id, &tool.config_format)?;
 
     info!(
         "Enabled MCP Manager integration for {} (port {})",
@@ -898,7 +827,6 @@ pub async fn enable_integration(
         enabled: true,
         config_path: tool.config_path.display().to_string(),
         configured_port: port,
-        supports_proxy: true,
         existing_servers: Vec::new(),
     })
 }
@@ -911,13 +839,6 @@ pub async fn disable_integration(
 ) -> Result<AiToolInfo, AppError> {
     let home = home_dir()?;
     let tool = find_tool_def(&home, &id)?;
-
-    if !tool.supports_proxy {
-        return Err(AppError::Protocol(format!(
-            "{} does not support proxy integration",
-            tool.name
-        )));
-    }
 
     // Remove from enabled list
     {
@@ -934,13 +855,12 @@ pub async fn disable_integration(
             enabled: false,
             config_path: tool.config_path.display().to_string(),
             configured_port: 0,
-            supports_proxy: true,
             existing_servers: Vec::new(),
         });
     }
 
     // Remove our proxy entries from the config file
-    remove_proxy_entries(&tool.config_path)?;
+    remove_managed_entries(&tool.config_path, &tool.config_format)?;
 
     info!("Disabled MCP Manager integration for {}", tool.name);
 
@@ -953,37 +873,42 @@ pub async fn disable_integration(
         enabled: false,
         config_path: tool.config_path.display().to_string(),
         configured_port: 0,
-        supports_proxy: true,
         existing_servers,
     })
 }
 
-/// Write per-server proxy entries to a tool's config file.
-/// Each connected server gets its own entry in mcpServers.
-/// `tool_id` is appended as `?client=` so the proxy can identify the calling AI tool.
-fn write_per_server_config(
+// ---------------------------------------------------------------------------
+// Format-aware config writers — write proxy entries for connected servers
+// ---------------------------------------------------------------------------
+
+/// Write proxy entries for all connected servers to a tool's config file.
+fn write_managed_config(
+    app: &AppHandle,
+    path: &Path,
+    port: u16,
+    tool_id: &str,
+    format: &ConfigFormat,
+) -> Result<(), AppError> {
+    match format {
+        ConfigFormat::McpServers => write_mcp_servers_config(app, path, port, tool_id),
+        ConfigFormat::OpenCode => write_opencode_config(app, path, port, tool_id),
+        ConfigFormat::Zed => write_zed_config(app, path, port, tool_id),
+        ConfigFormat::CodexToml => write_codex_config(app, path, port, tool_id),
+    }
+}
+
+fn write_mcp_servers_config(
     app: &AppHandle,
     path: &Path,
     port: u16,
     tool_id: &str,
 ) -> Result<(), AppError> {
-    let state = app.state::<SharedState>();
-    let s = state.lock().unwrap();
+    let entries = connected_proxy_urls(app, port, tool_id);
 
     let mut mcp_servers = serde_json::Map::new();
-    for srv in &s.servers {
-        if srv.status != Some(ServerStatus::Connected) {
-            continue;
-        }
-        mcp_servers.insert(
-            srv.name.clone(),
-            serde_json::json!({
-                "url": format!("http://localhost:{port}/mcp/{}?client={tool_id}", srv.id)
-            }),
-        );
+    for (name, url) in entries {
+        mcp_servers.insert(name, serde_json::json!({ "type": "http", "url": url }));
     }
-
-    drop(s);
 
     // Read existing config to preserve other top-level keys
     let mut config = if path.exists() {
@@ -1005,8 +930,132 @@ fn write_per_server_config(
     Ok(())
 }
 
-/// Remove all proxy entries from a tool's config file (entries with our proxy URLs).
-fn remove_proxy_entries(path: &Path) -> Result<(), AppError> {
+fn write_opencode_config(
+    app: &AppHandle,
+    path: &Path,
+    port: u16,
+    tool_id: &str,
+) -> Result<(), AppError> {
+    let entries = connected_proxy_urls(app, port, tool_id);
+
+    let mut mcp = serde_json::Map::new();
+    for (name, url) in entries {
+        mcp.insert(
+            name,
+            serde_json::json!({
+                "type": "remote",
+                "url": url
+            }),
+        );
+    }
+
+    let mut config = if path.exists() {
+        let content = std::fs::read_to_string(path)?;
+        serde_json::from_str::<serde_json::Value>(&content).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    config["mcp"] = serde_json::Value::Object(mcp);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let content = serde_json::to_string_pretty(&config)?;
+    std::fs::write(path, content)?;
+
+    Ok(())
+}
+
+fn write_zed_config(
+    app: &AppHandle,
+    path: &Path,
+    port: u16,
+    tool_id: &str,
+) -> Result<(), AppError> {
+    let entries = connected_proxy_urls(app, port, tool_id);
+
+    let mut context_servers = serde_json::Map::new();
+    for (name, url) in entries {
+        context_servers.insert(name, serde_json::json!({ "url": url }));
+    }
+
+    // Strip comments for parsing, but we'll write clean JSON back
+    let mut config = if path.exists() {
+        let content = std::fs::read_to_string(path)?;
+        let stripped = strip_json_comments(&content);
+        serde_json::from_str::<serde_json::Value>(&stripped).unwrap_or(serde_json::json!({}))
+    } else {
+        serde_json::json!({})
+    };
+
+    config["context_servers"] = serde_json::Value::Object(context_servers);
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let content = serde_json::to_string_pretty(&config)?;
+    std::fs::write(path, content)?;
+
+    Ok(())
+}
+
+fn write_codex_config(
+    app: &AppHandle,
+    path: &Path,
+    port: u16,
+    tool_id: &str,
+) -> Result<(), AppError> {
+    let entries = connected_proxy_urls(app, port, tool_id);
+
+    let mut mcp_servers = toml::map::Map::new();
+    for (name, url) in entries {
+        let mut entry = toml::map::Map::new();
+        entry.insert("url".into(), toml::Value::String(url));
+        mcp_servers.insert(name, toml::Value::Table(entry));
+    }
+
+    let mut config = if path.exists() {
+        let content = std::fs::read_to_string(path)?;
+        content
+            .parse::<toml::Value>()
+            .unwrap_or(toml::Value::Table(toml::map::Map::new()))
+    } else {
+        toml::Value::Table(toml::map::Map::new())
+    };
+
+    if let Some(table) = config.as_table_mut() {
+        table.insert("mcp_servers".into(), toml::Value::Table(mcp_servers));
+    }
+
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let content = toml::to_string_pretty(&config)
+        .map_err(|e| AppError::Protocol(format!("Failed to serialize TOML: {e}")))?;
+    std::fs::write(path, content)?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Format-aware config removers — remove proxy entries on disable
+// ---------------------------------------------------------------------------
+
+/// Remove all proxy entries from a tool's config file.
+fn remove_managed_entries(path: &Path, format: &ConfigFormat) -> Result<(), AppError> {
+    match format {
+        ConfigFormat::McpServers => remove_mcp_servers_entries(path),
+        ConfigFormat::OpenCode => remove_opencode_entries(path),
+        ConfigFormat::Zed => remove_zed_entries(path),
+        ConfigFormat::CodexToml => remove_codex_entries(path),
+    }
+}
+
+fn remove_mcp_servers_entries(path: &Path) -> Result<(), AppError> {
     let content = std::fs::read_to_string(path)?;
     let mut config: serde_json::Value = serde_json::from_str(&content)?;
 
@@ -1034,6 +1083,100 @@ fn remove_proxy_entries(path: &Path) -> Result<(), AppError> {
     Ok(())
 }
 
+fn remove_opencode_entries(path: &Path) -> Result<(), AppError> {
+    let content = std::fs::read_to_string(path)?;
+    let mut config: serde_json::Value = serde_json::from_str(&content)?;
+
+    if let Some(mcp) = config.get_mut("mcp").and_then(|v| v.as_object_mut()) {
+        let proxy_keys: Vec<String> = mcp
+            .iter()
+            .filter(|(_, v)| {
+                v.get("url")
+                    .and_then(|u| u.as_str())
+                    .map(is_proxy_url)
+                    .unwrap_or(false)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in proxy_keys {
+            mcp.remove(&key);
+        }
+    }
+
+    let content = serde_json::to_string_pretty(&config)?;
+    std::fs::write(path, content)?;
+
+    Ok(())
+}
+
+fn remove_zed_entries(path: &Path) -> Result<(), AppError> {
+    let content = std::fs::read_to_string(path)?;
+    let stripped = strip_json_comments(&content);
+    let mut config: serde_json::Value = serde_json::from_str(&stripped)?;
+
+    if let Some(servers) = config
+        .get_mut("context_servers")
+        .and_then(|v| v.as_object_mut())
+    {
+        let proxy_keys: Vec<String> = servers
+            .iter()
+            .filter(|(_, v)| {
+                v.get("url")
+                    .and_then(|u| u.as_str())
+                    .map(is_proxy_url)
+                    .unwrap_or(false)
+            })
+            .map(|(k, _)| k.clone())
+            .collect();
+
+        for key in proxy_keys {
+            servers.remove(&key);
+        }
+    }
+
+    let content = serde_json::to_string_pretty(&config)?;
+    std::fs::write(path, content)?;
+
+    Ok(())
+}
+
+fn remove_codex_entries(path: &Path) -> Result<(), AppError> {
+    let content = std::fs::read_to_string(path)?;
+    let mut config: toml::Value = content
+        .parse()
+        .map_err(|e| AppError::Protocol(format!("Invalid TOML: {e}")))?;
+
+    if let Some(table) = config.as_table_mut() {
+        if let Some(servers) = table.get_mut("mcp_servers").and_then(|v| v.as_table_mut()) {
+            let proxy_keys: Vec<String> = servers
+                .iter()
+                .filter(|(_, v)| {
+                    v.get("url")
+                        .and_then(|u| u.as_str())
+                        .map(is_proxy_url)
+                        .unwrap_or(false)
+                })
+                .map(|(k, _)| k.clone())
+                .collect();
+
+            for key in proxy_keys {
+                servers.remove(&key);
+            }
+        }
+    }
+
+    let content = toml::to_string_pretty(&config)
+        .map_err(|e| AppError::Protocol(format!("Failed to serialize TOML: {e}")))?;
+    std::fs::write(path, content)?;
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Sync enabled configs with current connected servers
+// ---------------------------------------------------------------------------
+
 /// Update all enabled integration configs with current connected servers.
 /// Called on proxy startup, server connect/disconnect, and enable/disable.
 pub fn update_all_integration_configs(app: &AppHandle, port: u16) -> Result<(), AppError> {
@@ -1047,11 +1190,13 @@ pub fn update_all_integration_configs(app: &AppHandle, port: u16) -> Result<(), 
     };
 
     for tool in tools {
-        if !enabled_ids.contains(&tool.id) || !tool.supports_proxy || !tool.config_path.exists() {
+        if !enabled_ids.contains(&tool.id) || !tool.config_path.exists() {
             continue;
         }
 
-        if let Err(e) = write_per_server_config(app, &tool.config_path, port, &tool.id) {
+        if let Err(e) =
+            write_managed_config(app, &tool.config_path, port, &tool.id, &tool.config_format)
+        {
             warn!("Failed to update config for {}: {e}", tool.name);
         } else {
             info!("Updated {} config with per-server proxy entries", tool.name);

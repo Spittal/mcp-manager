@@ -28,7 +28,9 @@ pub async fn connect_server(
             .find(|s| s.id == id)
             .ok_or_else(|| AppError::ServerNotFound(id.clone()))?;
 
-        if server.status == Some(ServerStatus::Connected) {
+        if server.status == Some(ServerStatus::Connected)
+            || server.status == Some(ServerStatus::Connecting)
+        {
             return Err(AppError::AlreadyConnected(id.clone()));
         }
 
@@ -224,10 +226,16 @@ pub async fn reconnect_on_startup(app: AppHandle) {
     let oauth_store = app.state::<SharedOAuthStore>();
 
     for (id, config) in servers_to_reconnect {
-        // Mark as connecting
+        // Skip if already connected/connecting (frontend's autoConnectServers may have raced us)
         {
             let mut s = state.lock().unwrap();
             if let Some(server) = s.servers.iter_mut().find(|s| s.id == id) {
+                if server.status == Some(ServerStatus::Connected)
+                    || server.status == Some(ServerStatus::Connecting)
+                {
+                    info!("Server {id} already connecting/connected, skipping reconnect");
+                    continue;
+                }
                 server.status = Some(ServerStatus::Connecting);
             }
         }
