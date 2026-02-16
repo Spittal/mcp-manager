@@ -63,8 +63,19 @@ const { stats, resetStats, successRate, avgLatency, topClient, sortedTools, rece
 
 type Tab = 'overview' | 'tools' | 'logs';
 
-const TABS: Tab[] = ['overview', 'tools', 'logs'];
+const availableTabs = computed<Tab[]>(() =>
+  selectedServer.value?.status === 'connected'
+    ? ['overview', 'tools', 'logs']
+    : ['overview', 'logs']
+);
 const activeTab = ref<Tab>('overview');
+
+// Reset to overview if current tab becomes unavailable (e.g. disconnect)
+watch(availableTabs, (tabs) => {
+  if (!tabs.includes(activeTab.value)) {
+    activeTab.value = 'overview';
+  }
+});
 
 // --- Local state ---
 
@@ -180,7 +191,7 @@ function formatTime(unixSecs: number): string {
     <!-- Tabs -->
     <div class="flex border-b border-border">
       <button
-        v-for="tab in TABS"
+        v-for="tab in availableTabs"
         :key="tab"
         class="border-b-2 px-4 py-2 text-xs transition-colors"
         :class="activeTab === tab
@@ -220,7 +231,13 @@ function formatTime(unixSecs: number): string {
         <!-- Generic error (non-auth) -->
         <div v-else-if="serverError && !isAuthRequired" class="mb-4 rounded border border-status-error/30 bg-status-error/10 p-3">
           <p class="mb-1 font-mono text-xs font-medium text-status-error">Connection Error</p>
-          <p class="font-mono text-xs text-text-secondary break-all">{{ serverError }}</p>
+          <p class="whitespace-pre-line font-mono text-xs text-text-secondary break-all">{{ serverError }}</p>
+          <p class="mt-2 text-xs text-text-muted">
+            This usually means the server needs additional configuration, such as an API key.
+            Check the server's documentation for setup instructions, then use
+            <router-link :to="`/edit/${selectedServer!.id}`" class="text-accent hover:text-accent-hover">Edit</router-link>
+            to update the server settings.
+          </p>
         </div>
 
         <section class="mb-6">
@@ -339,8 +356,8 @@ function formatTime(unixSecs: number): string {
             </div>
             <div v-if="selectedServer.env && Object.keys(selectedServer.env).length">
               <span class="text-text-muted">env:</span>
-              <div v-for="(val, key) in selectedServer.env" :key="key" class="ml-3">
-                {{ key }}={{ val }}
+              <div v-for="(_val, key) in selectedServer.env" :key="key" class="ml-3">
+                {{ key }}=••••••••
               </div>
             </div>
             <div v-if="selectedServer.tags?.length" class="mt-2">
