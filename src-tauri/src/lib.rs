@@ -1,11 +1,13 @@
 mod commands;
 mod error;
 mod mcp;
+mod memory_client;
 mod persistence;
 pub mod stats;
 mod state;
 mod tray;
 
+use commands::status::SharedSystem;
 use mcp::client::McpConnections;
 use state::{AppState, OAuthStore};
 use stats::StatsStore;
@@ -43,6 +45,7 @@ pub fn run() {
             app.manage(Mutex::new(app_state));
             app.manage(tokio::sync::Mutex::new(McpConnections::new()));
             app.manage(tokio::sync::Mutex::new(OAuthStore::new()));
+            app.manage(Mutex::new(sysinfo::System::new()) as SharedSystem);
 
             let stats_store: StatsStore = Arc::new(RwLock::new(stats));
             app.manage(stats_store);
@@ -81,6 +84,7 @@ pub fn run() {
             commands::tools::call_tool,
             commands::proxy::get_proxy_status,
             commands::integrations::detect_integrations,
+            commands::integrations::import_from_tool,
             commands::integrations::enable_integration,
             commands::integrations::disable_integration,
             commands::oauth::start_oauth_flow,
@@ -95,6 +99,10 @@ pub fn run() {
             commands::memory::delete_ollama_model,
             commands::stats::get_server_stats,
             commands::stats::reset_server_stats,
+            commands::status::get_system_status,
+            commands::memories::search_memories,
+            commands::memories::get_memory,
+            commands::memories::check_memory_health,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

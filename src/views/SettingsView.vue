@@ -7,7 +7,7 @@ import SettingsProxy from '@/components/SettingsProxy.vue';
 type Section = 'integrations' | 'memory' | 'proxy';
 
 const sections: { id: Section; label: string }[] = [
-  { id: 'integrations', label: 'Connected Apps' },
+  { id: 'integrations', label: 'MCP Configs' },
   { id: 'memory', label: 'Memory' },
   { id: 'proxy', label: 'Proxy' },
 ];

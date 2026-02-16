@@ -1,9 +1,11 @@
 pub mod connections;
 pub mod integrations;
+pub mod memories;
 pub mod memory;
 pub mod oauth;
 pub mod proxy;
 pub mod servers;
 pub mod skills;
 pub mod stats;
+pub mod status;
 pub mod tools;

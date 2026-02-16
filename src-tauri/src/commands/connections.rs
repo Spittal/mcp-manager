@@ -69,7 +69,20 @@ pub async fn connect_server(
             let url = server_config
                 .url
                 .ok_or_else(|| AppError::ConnectionFailed("No URL specified".into()))?;
-            McpClient::connect_http(&url, server_config.headers, access_token).await
+            emit_server_log(&app, &id, "info", &format!("Connecting to {url}"));
+            match McpClient::connect_http(&url, server_config.headers, access_token).await {
+                Ok(client) => {
+                    emit_server_log(&app, &id, "info", &format!(
+                        "Connected — {} tools available",
+                        client.tools.len()
+                    ));
+                    Ok(client)
+                }
+                Err(e) => {
+                    emit_server_log(&app, &id, "error", &format!("Connection failed: {e}"));
+                    Err(e)
+                }
+            }
         }
     };
 
@@ -152,6 +165,7 @@ pub async fn disconnect_server(
         tracing::warn!("Failed to update integration configs after disconnect: {e}");
     }
 
+    emit_server_log(&app, &id, "info", "Disconnected");
     info!("Disconnected server {id}");
 
     Ok(())
@@ -241,7 +255,20 @@ pub async fn reconnect_on_startup(app: AppHandle) {
                     error!("Server {id} has no URL, skipping reconnect");
                     continue;
                 };
-                McpClient::connect_http(&url, config.headers, access_token).await
+                emit_server_log(&app, &id, "info", &format!("Connecting to {url}"));
+                match McpClient::connect_http(&url, config.headers, access_token).await {
+                    Ok(client) => {
+                        emit_server_log(&app, &id, "info", &format!(
+                            "Connected — {} tools available",
+                            client.tools.len()
+                        ));
+                        Ok(client)
+                    }
+                    Err(e) => {
+                        emit_server_log(&app, &id, "error", &format!("Connection failed: {e}"));
+                        Err(e)
+                    }
+                }
             }
         };
 
@@ -386,6 +413,18 @@ async fn finalize_connection(
     }
 
     Ok(())
+}
+
+/// Emit a `server-log` event for HTTP transport servers (stdio servers emit their own via stderr).
+fn emit_server_log(app: &AppHandle, server_id: &str, level: &str, message: &str) {
+    let _ = app.emit(
+        "server-log",
+        serde_json::json!({
+            "serverId": server_id,
+            "level": level,
+            "message": message,
+        }),
+    );
 }
 
 fn chrono_now() -> String {

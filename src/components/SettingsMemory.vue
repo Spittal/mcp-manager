@@ -32,7 +32,7 @@ const deletingModel = ref<string | null>(null);
 
 const canEnable = computed(() => {
   if (!status.value) return false;
-  return status.value.uvxAvailable && status.value.dockerAvailable;
+  return status.value.dockerAvailable;
 });
 
 const currentModels = computed<EmbeddingModelInfo[]>(() =>
@@ -246,12 +246,8 @@ onUnmounted(() => {
         </template>
 
         <!-- Prerequisite warnings -->
-        <div v-if="!status.enabled && (!status.uvxAvailable || !status.dockerAvailable)" class="border-t border-border/50 px-3 py-2 space-y-1">
-          <div v-if="!status.uvxAvailable" class="flex items-center gap-1.5 text-[11px] text-status-connecting">
-            <span>&#9888;</span>
-            <span>uvx not found — install with: <code class="font-mono bg-surface-2 px-1 rounded">brew install uv</code></span>
-          </div>
-          <div v-if="!status.dockerAvailable" class="flex items-center gap-1.5 text-[11px] text-status-connecting">
+        <div v-if="!status.enabled && !status.dockerAvailable" class="border-t border-border/50 px-3 py-2 space-y-1">
+          <div class="flex items-center gap-1.5 text-[11px] text-status-connecting">
             <span>&#9888;</span>
             <span>Docker not found</span>
           </div>

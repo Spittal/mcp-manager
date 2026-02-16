@@ -17,6 +17,8 @@ type PendingRequest = oneshot::Sender<JsonRpcResponse>;
 /// Handle for writing to a running MCP server's stdin and tracking pending requests.
 pub struct StdioTransport {
     next_id: AtomicU64,
+    /// PID of the spawned child process.
+    pid: u32,
     /// Channel to send raw JSON lines to the stdin writer task.
     stdin_tx: mpsc::Sender<String>,
     /// Map of request ID -> oneshot sender for response correlation.
@@ -48,6 +50,8 @@ impl StdioTransport {
         let (mut rx, mut child) = cmd
             .spawn()
             .map_err(|e| AppError::Transport(format!("Failed to spawn process: {e}")))?;
+
+        let pid = child.pid();
 
         // Channel for sending lines to stdin
         let (stdin_tx, mut stdin_rx) = mpsc::channel::<String>(64);
@@ -153,6 +157,7 @@ impl StdioTransport {
 
         Ok(Self {
             next_id: AtomicU64::new(1),
+            pid,
             stdin_tx,
             pending,
         })
@@ -231,6 +236,11 @@ impl StdioTransport {
         debug!("Sent notification method={method}");
 
         Ok(())
+    }
+
+    /// Return the PID of the spawned child process.
+    pub fn pid(&self) -> u32 {
+        self.pid
     }
 
     /// Shut down the transport — closes stdin which triggers child process kill.

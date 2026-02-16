@@ -1,6 +1,8 @@
 import { createApp } from 'vue';
 import { createPinia } from 'pinia';
 import { createRouter, createWebHistory } from 'vue-router';
+import VNetworkGraph from 'v-network-graph';
+import 'v-network-graph/lib/style.css';
 import App from './App.vue';
 import './assets/main.css';
 
@@ -28,6 +30,21 @@ const router = createRouter({
       component: () => import('./views/SkillDetailView.vue'),
     },
     {
+      path: '/memories',
+      name: 'memories',
+      component: () => import('./views/MemoryBrowserView.vue'),
+    },
+    {
+      path: '/memory-graph',
+      name: 'memory-graph',
+      component: () => import('./views/MemoryGraphView.vue'),
+    },
+    {
+      path: '/status',
+      name: 'status',
+      component: () => import('./views/SystemStatusView.vue'),
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('./views/SettingsView.vue'),
@@ -38,4 +55,5 @@ const router = createRouter({
 const app = createApp(App);
 app.use(createPinia());
 app.use(router);
+app.use(VNetworkGraph);
 app.mount('#app');

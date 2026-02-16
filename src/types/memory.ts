@@ -1,11 +1,43 @@
 export interface MemoryStatus {
   enabled: boolean;
   serverStatus: string | null;
-  uvxAvailable: boolean;
   dockerAvailable: boolean;
   redisRunning: boolean;
+  apiRunning: boolean;
+  mcpRunning: boolean;
   ollamaRunning: boolean;
   embeddingProvider: string;
   embeddingModel: string;
   error: string | null;
+}
+export interface MemoryItem {
+  id: string;
+  text: string;
+  memoryType: string;
+  userId: string | null;
+  sessionId: string | null;
+  namespace: string | null;
+  topics: string[];
+  entities: string[];
+  eventDate: string | null;
+  createdAt: string;
+  lastAccessed: string;
+  updatedAt: string;
+  pinned: boolean;
+  distance: number | null;
+}
+
+export interface MemorySearchResult {
+  memories: MemoryItem[];
+  total: number;
+  nextOffset: number | null;
+}
+
+export interface SearchFilters {
+  memoryType?: string;
+  topics?: string[];
+  entities?: string[];
+  namespace?: string;
+  userId?: string;
+  sessionId?: string;
 }

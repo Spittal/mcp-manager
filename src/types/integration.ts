@@ -13,5 +13,6 @@ export interface AiToolInfo {
   enabled: boolean;
   configPath: string;
   configuredPort: number;
+  supportsProxy: boolean;
   existingServers: ExistingMcpServer[];
 }
