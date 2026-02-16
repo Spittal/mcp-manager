@@ -28,6 +28,10 @@ const router = createRouter({
       component: () => import('./views/SkillDetailView.vue'),
     },
     {
+      path: '/marketplace',
+      redirect: '/add',
+    },
+    {
       path: '/settings',
       name: 'settings',
       component: () => import('./views/SettingsView.vue'),
