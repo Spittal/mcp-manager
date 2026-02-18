@@ -3,8 +3,8 @@ mod error;
 mod mcp;
 mod memory_client;
 mod persistence;
-pub mod stats;
 mod state;
+pub mod stats;
 mod tray;
 
 use commands::status::SharedSystem;
@@ -22,6 +22,7 @@ pub fn run() {
     tracing_subscriber::fmt::init();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_http::init())
@@ -109,6 +110,9 @@ pub fn run() {
             commands::registry::get_registry_server,
             commands::registry::install_registry_server,
             commands::registry::check_runtime_deps,
+            commands::data_management::export_memories,
+            commands::data_management::import_memories,
+            commands::data_management::format_memory_data,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

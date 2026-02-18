@@ -84,8 +84,7 @@ pub async fn start_proxy(
     proxy_state.set_running(port).await;
 
     // Update all enabled AI tool integration configs with the new port
-    if let Err(e) =
-        crate::commands::integrations::update_all_integration_configs(&app_handle, port)
+    if let Err(e) = crate::commands::integrations::update_all_integration_configs(&app_handle, port)
     {
         tracing::warn!("Failed to update integration configs on startup: {e}");
     }
@@ -139,11 +138,8 @@ async fn handle_mcp_post(
     let server_name = match server_name {
         Some(name) => name,
         None => {
-            let resp = make_error_response(
-                id,
-                -32602,
-                &format!("No server found with ID: {server_id}"),
-            );
+            let resp =
+                make_error_response(id, -32602, &format!("No server found with ID: {server_id}"));
             let body = serde_json::to_string(&resp).unwrap_or_default();
             let mut headers = HeaderMap::new();
             headers.insert("content-type", "application/json".parse().unwrap());

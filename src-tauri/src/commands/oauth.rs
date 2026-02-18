@@ -24,7 +24,9 @@ pub async fn start_oauth_flow(
             .find(|s| s.id == id)
             .ok_or_else(|| AppError::ServerNotFound(id.clone()))?;
         if !matches!(server.transport, ServerTransport::Http) {
-            return Err(AppError::OAuth("OAuth is only supported for HTTP servers".into()));
+            return Err(AppError::OAuth(
+                "OAuth is only supported for HTTP servers".into(),
+            ));
         }
         server
             .url
@@ -49,15 +51,13 @@ pub async fn start_oauth_flow(
         let store = oauth_store.lock().await;
         let existing = store.get(&id);
         match existing {
-            Some(os) if os.client_id.is_some() => (
-                os.client_id.clone().unwrap(),
-                os.client_secret.clone(),
-            ),
+            Some(os) if os.client_id.is_some() => {
+                (os.client_id.clone().unwrap(), os.client_secret.clone())
+            }
             _ => {
                 drop(store);
                 if let Some(ref reg_endpoint) = metadata.registration_endpoint {
-                    let (cid, csec) =
-                        oauth::dynamic_register(reg_endpoint, &redirect_uri).await?;
+                    let (cid, csec) = oauth::dynamic_register(reg_endpoint, &redirect_uri).await?;
                     (cid, csec)
                 } else {
                     return Err(AppError::OAuth(
@@ -75,13 +75,8 @@ pub async fn start_oauth_flow(
     let state_nonce = oauth::generate_state_nonce();
 
     // 7. Build authorization URL
-    let auth_url = oauth::build_authorization_url(
-        &metadata,
-        &client_id,
-        &redirect_uri,
-        &pkce,
-        &state_nonce,
-    )?;
+    let auth_url =
+        oauth::build_authorization_url(&metadata, &client_id, &redirect_uri, &pkce, &state_nonce)?;
 
     // 8. Open browser
     info!("Opening browser for OAuth authorization");
@@ -97,12 +92,13 @@ pub async fn start_oauth_flow(
     // 9. Await callback (2-min timeout is built into the callback server)
     let callback_result = callback_rx
         .await
-        .map_err(|_| AppError::OAuth("OAuth callback channel closed unexpectedly".into()))?
-        ?;
+        .map_err(|_| AppError::OAuth("OAuth callback channel closed unexpectedly".into()))??;
 
     // Verify state nonce
     if callback_result.state != state_nonce {
-        return Err(AppError::OAuth("OAuth state mismatch — possible CSRF attack".into()));
+        return Err(AppError::OAuth(
+            "OAuth state mismatch — possible CSRF attack".into(),
+        ));
     }
 
     let _ = app.emit(

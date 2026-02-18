@@ -11,9 +11,7 @@ pub struct ProxyStatus {
 }
 
 #[tauri::command]
-pub async fn get_proxy_status(
-    proxy_state: State<'_, ProxyState>,
-) -> Result<ProxyStatus, AppError> {
+pub async fn get_proxy_status(proxy_state: State<'_, ProxyState>) -> Result<ProxyStatus, AppError> {
     Ok(ProxyStatus {
         running: proxy_state.is_running().await,
         port: proxy_state.port().await,

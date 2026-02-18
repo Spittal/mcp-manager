@@ -8,7 +8,23 @@ const store = useMemoriesStore();
 const { search, addTopicFilter, addEntityFilter, clearFilters } = useMemorySearch();
 
 let debounceTimer: ReturnType<typeof setTimeout>;
+let retryTimer: ReturnType<typeof setTimeout> | undefined;
 const scrollContainer = ref<HTMLElement | null>(null);
+
+async function searchAndCheckIndexing() {
+  await search();
+
+  // If the store has the indexing flag (set by Data Management after import/format),
+  // keep retrying until results appear, then clear the flag
+  if (store.indexing) {
+    if (store.items.length > 0) {
+      store.indexing = false;
+      clearTimeout(retryTimer);
+    } else {
+      retryTimer = setTimeout(() => searchAndCheckIndexing(), 3000);
+    }
+  }
+}
 
 function onScroll(e: Event) {
   if (!store.hasMore || store.loading) return;
@@ -20,6 +36,8 @@ function onScroll(e: Event) {
 
 function onQueryInput() {
   clearTimeout(debounceTimer);
+  clearTimeout(retryTimer);
+  store.indexing = false;
   debounceTimer = setTimeout(() => search(), 300);
 }
 
@@ -79,14 +97,19 @@ const typeColors: Record<string, string> = {
   message: 'bg-status-connected text-surface-0',
 };
 
-watch(() => store.filters, () => search(), { deep: true });
+watch(() => store.filters, () => {
+  clearTimeout(retryTimer);
+  store.indexing = false;
+  search();
+}, { deep: true });
 
 onMounted(() => {
-  search();
+  searchAndCheckIndexing();
 });
 
 onUnmounted(() => {
   clearTimeout(debounceTimer);
+  clearTimeout(retryTimer);
 });
 </script>
 
@@ -152,7 +175,12 @@ onUnmounted(() => {
 
       <!-- Results -->
       <div ref="scrollContainer" class="flex-1 overflow-y-auto" @scroll="onScroll">
-        <div v-if="store.loading && !store.items.length" class="py-12 text-center text-xs text-text-muted">
+        <div v-if="store.indexing" class="py-12 text-center space-y-2">
+          <span class="mx-auto block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
+          <p class="text-xs text-text-muted">Processing memories...</p>
+          <p class="text-[10px] text-text-muted">The memory server is indexing. This may take a moment.</p>
+        </div>
+        <div v-else-if="store.loading && !store.items.length" class="py-12 text-center text-xs text-text-muted">
           Loading...
         </div>
         <div v-else-if="store.error" class="p-4 text-xs text-status-error">

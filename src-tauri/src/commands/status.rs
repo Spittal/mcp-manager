@@ -173,9 +173,9 @@ pub async fn get_system_status(
 
     // Process stats — only look up PIDs we actually manage
     let processes = {
-        let mut sys = system.lock().map_err(|e| {
-            AppError::ConnectionFailed(format!("Failed to lock sysinfo: {e}"))
-        })?;
+        let mut sys = system
+            .lock()
+            .map_err(|e| AppError::ConnectionFailed(format!("Failed to lock sysinfo: {e}")))?;
 
         let pids: Vec<sysinfo::Pid> = managed_pids
             .iter()

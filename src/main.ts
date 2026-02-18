@@ -40,6 +40,11 @@ const router = createRouter({
       component: () => import('./views/MemoryGraphView.vue'),
     },
     {
+      path: '/memory-data',
+      name: 'memory-data',
+      component: () => import('./views/MemoryDataView.vue'),
+    },
+    {
       path: '/status',
       name: 'status',
       component: () => import('./views/SystemStatusView.vue'),

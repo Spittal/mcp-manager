@@ -277,8 +277,7 @@ impl MarketplaceCache {
                     continue;
                 }
                 if let Some(repo_url) = &server.repository_url {
-                    let normalized =
-                        providers::official_registry::normalize_repo_url(repo_url);
+                    let normalized = providers::official_registry::normalize_repo_url(repo_url);
                     if let Some(config) = official_index.get(&normalized) {
                         server.install = Some(config.clone());
                     }

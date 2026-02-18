@@ -35,7 +35,9 @@ pub fn rebuild_tray_menu(app: &AppHandle) {
     }
 }
 
-fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
+fn build_tray_menu(
+    app: &AppHandle,
+) -> Result<tauri::menu::Menu<tauri::Wry>, Box<dyn std::error::Error>> {
     let mut builder = MenuBuilder::new(app);
 
     // Add server items from AppState
@@ -71,9 +73,7 @@ fn build_tray_menu(app: &AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, Box
         .build(app)?;
     builder = builder.item(&show);
 
-    let quit = MenuItemBuilder::new("Quit")
-        .id("quit")
-        .build(app)?;
+    let quit = MenuItemBuilder::new("Quit").id("quit").build(app)?;
     builder = builder.item(&quit);
 
     Ok(builder.build()?)
@@ -92,7 +92,10 @@ fn handle_menu_event(app: &AppHandle, event: tauri::menu::MenuEvent) {
         _ if id.starts_with("server:") => {
             let server_id = &id["server:".len()..];
             focus_main_window(app);
-            let _ = app.emit("navigate-to-server", serde_json::json!({ "serverId": server_id }));
+            let _ = app.emit(
+                "navigate-to-server",
+                serde_json::json!({ "serverId": server_id }),
+            );
         }
         _ => {}
     }

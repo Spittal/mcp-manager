@@ -84,10 +84,7 @@ pub async fn fetch_servers(client: &reqwest::Client) -> Option<Vec<MarketplaceSe
 /// ```
 fn parse_install(json_str: &str) -> Option<InstallConfig> {
     let val: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    let servers = val
-        .get("claudeDesktop")?
-        .get("mcpServers")?
-        .as_object()?;
+    let servers = val.get("claudeDesktop")?.get("mcpServers")?.as_object()?;
     let (_, config) = servers.iter().next()?;
 
     let command = config.get("command")?.as_str()?.to_string();

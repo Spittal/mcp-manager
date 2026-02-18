@@ -104,6 +104,13 @@ onMounted(async () => {
             >
               Graph
             </router-link>
+            <router-link
+              to="/memory-data"
+              class="flex items-center px-3 py-1.5 text-xs text-text-muted transition-colors hover:bg-surface-2 hover:text-text-secondary"
+              active-class="bg-surface-2 text-text-secondary"
+            >
+              Data Management
+            </router-link>
           </div>
         </div>
 

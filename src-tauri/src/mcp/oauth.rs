@@ -24,8 +24,8 @@ pub struct PkceChallenge {
 /// 2. Fallback: GET `{origin}/.well-known/oauth-authorization-server` directly (servers like Linear
 ///    skip the protected-resource step and serve auth metadata on the MCP origin itself).
 pub async fn discover_metadata(server_url: &str) -> Result<AuthServerMetadata, AppError> {
-    let parsed = Url::parse(server_url)
-        .map_err(|e| AppError::OAuth(format!("Invalid server URL: {e}")))?;
+    let parsed =
+        Url::parse(server_url).map_err(|e| AppError::OAuth(format!("Invalid server URL: {e}")))?;
     let origin = format!("{}://{}", parsed.scheme(), parsed.authority());
     let client = Client::new();
 
@@ -48,8 +48,7 @@ pub async fn discover_metadata(server_url: &str) -> Result<AuthServerMetadata, A
 
                 if let Some(auth_server_url) = auth_servers.first() {
                     info!("Found authorization server via protected-resource: {auth_server_url}");
-                    if let Ok(metadata) =
-                        fetch_auth_server_metadata(&client, auth_server_url).await
+                    if let Ok(metadata) = fetch_auth_server_metadata(&client, auth_server_url).await
                     {
                         return Ok(metadata);
                     }
@@ -273,9 +272,7 @@ pub async fn exchange_code(
         .and_then(|v| v.as_str())
         .map(String::from);
 
-    let expires_in = result
-        .get("expires_in")
-        .and_then(|v| v.as_u64());
+    let expires_in = result.get("expires_in").and_then(|v| v.as_u64());
 
     let obtained_at = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

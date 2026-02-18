@@ -75,6 +75,13 @@ fn emit_progress(app: &AppHandle, msg: &str) {
     );
 }
 
+fn emit_step(app: &AppHandle, msg: &str, step: usize, total: usize) {
+    let _ = app.emit(
+        "memory-progress",
+        serde_json::json!({ "message": msg, "step": step, "total": total }),
+    );
+}
+
 /// Ensure the Docker network exists.
 async fn ensure_network() -> Result<(), AppError> {
     let output = tokio::process::Command::new("docker")
@@ -104,7 +111,10 @@ async fn ensure_container(
         return Ok(());
     }
 
-    emit_progress(app, &format!("Starting {name} container (may pull image)..."));
+    emit_progress(
+        app,
+        &format!("Starting {name} container (may pull image)..."),
+    );
     info!("Starting container {name}");
 
     let output = tokio::process::Command::new("docker")
@@ -152,6 +162,123 @@ fn append_env(args: &mut Vec<String>, env: &std::collections::HashMap<String, St
     }
 }
 
+const REDIS_VOLUME: &str = "mcp-manager-redis";
+
+/// Migrate an existing Redis container's data to a named Docker volume.
+/// If the container exists without a volume mount on /data, we copy the data
+/// out, remove the container, and let ensure_container recreate it with the volume.
+async fn migrate_redis_volume(app: &AppHandle) -> Result<(), AppError> {
+    // Check if the container exists at all (running or stopped)
+    let exists = tokio::process::Command::new("docker")
+        .args(["container", "inspect", REDIS_CONTAINER])
+        .output()
+        .await
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    if !exists {
+        return Ok(());
+    }
+
+    // Check if /data is already a volume mount
+    let output = tokio::process::Command::new("docker")
+        .args([
+            "inspect",
+            REDIS_CONTAINER,
+            "--format",
+            "{{range .Mounts}}{{.Destination}}{{end}}",
+        ])
+        .output()
+        .await
+        .map_err(|e| AppError::ConnectionFailed(format!("Failed to inspect container: {e}")))?;
+    let mounts = String::from_utf8_lossy(&output.stdout);
+    if mounts.contains("/data") {
+        return Ok(()); // already has a volume on /data
+    }
+
+    emit_progress(app, "Migrating Redis data to persistent volume...");
+    info!("Migrating Redis data to named volume {REDIS_VOLUME}");
+
+    // Ensure the container is running so we can docker cp/exec
+    let _ = tokio::process::Command::new("docker")
+        .args(["start", REDIS_CONTAINER])
+        .output()
+        .await;
+
+    // Trigger a Redis BGSAVE to flush in-memory data to disk before copying
+    let _ = tokio::process::Command::new("docker")
+        .args(["exec", REDIS_CONTAINER, "redis-cli", "BGSAVE"])
+        .output()
+        .await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Create the named volume
+    let _ = tokio::process::Command::new("docker")
+        .args(["volume", "create", REDIS_VOLUME])
+        .output()
+        .await;
+
+    // Copy data from the container to a temp dir on the host
+    let tmp_dir = std::env::temp_dir().join("mcp-redis-migrate");
+    let _ = std::fs::remove_dir_all(&tmp_dir); // clean any previous attempt
+    let cp_out = tokio::process::Command::new("docker")
+        .args([
+            "cp",
+            &format!("{REDIS_CONTAINER}:/data"),
+            tmp_dir.to_str().unwrap(),
+        ])
+        .output()
+        .await
+        .map_err(|e| AppError::ConnectionFailed(format!("Failed to copy Redis data: {e}")))?;
+
+    if !cp_out.status.success() {
+        let stderr = String::from_utf8_lossy(&cp_out.stderr);
+        return Err(AppError::ConnectionFailed(format!(
+            "Failed to copy Redis data from container: {stderr}"
+        )));
+    }
+
+    // Stop and remove the old container
+    let _ = tokio::process::Command::new("docker")
+        .args(["stop", REDIS_CONTAINER])
+        .output()
+        .await;
+    let _ = tokio::process::Command::new("docker")
+        .args(["rm", REDIS_CONTAINER])
+        .output()
+        .await;
+
+    // Start a temporary container with the volume to copy data in
+    let cp_in = tokio::process::Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "-v",
+            &format!("{REDIS_VOLUME}:/data"),
+            "-v",
+            &format!("{}:/source:ro", tmp_dir.to_str().unwrap()),
+            "alpine",
+            "sh",
+            "-c",
+            "cp -a /source/. /data/",
+        ])
+        .output()
+        .await
+        .map_err(|e| AppError::ConnectionFailed(format!("Failed to restore Redis data: {e}")))?;
+
+    if !cp_in.status.success() {
+        let stderr = String::from_utf8_lossy(&cp_in.stderr);
+        return Err(AppError::ConnectionFailed(format!(
+            "Failed to copy Redis data to volume: {stderr}"
+        )));
+    }
+
+    // Clean up temp dir
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+
+    info!("Redis data migrated to volume {REDIS_VOLUME}");
+    Ok(())
+}
+
 /// Stop and remove a container (best-effort).
 async fn stop_container(name: &str) {
     let _ = tokio::process::Command::new("docker")
@@ -187,13 +314,14 @@ async fn wait_for_sse_ready(url: &str, timeout_secs: u64) -> Result<(), AppError
 
 /// Pull an Ollama model inside the container. Fast no-op if already pulled.
 async fn pull_ollama_model(app: &AppHandle, model: &str) -> Result<(), AppError> {
-    emit_progress(app, &format!("Pulling model {model} (cached after first run)..."));
+    emit_progress(
+        app,
+        &format!("Pulling model {model} (cached after first run)..."),
+    );
     info!("Pulling Ollama model {model}");
 
     let output = tokio::process::Command::new("docker")
-        .args([
-            "exec", OLLAMA_CONTAINER, "ollama", "pull", model,
-        ])
+        .args(["exec", OLLAMA_CONTAINER, "ollama", "pull", model])
         .output()
         .await
         .map_err(|e| AppError::ConnectionFailed(format!("Failed to pull model {model}: {e}")))?;
@@ -454,9 +582,7 @@ fn find_memory_server(servers: &[ServerConfig]) -> Option<&ServerConfig> {
 }
 
 #[tauri::command]
-pub async fn get_memory_status(
-    state: State<'_, SharedState>,
-) -> Result<MemoryStatus, AppError> {
+pub async fn get_memory_status(state: State<'_, SharedState>) -> Result<MemoryStatus, AppError> {
     let (enabled, server_status, embedding_config) = {
         let s = state.lock().unwrap();
         let config = s.embedding_config.clone();
@@ -535,7 +661,9 @@ pub async fn save_embedding_config_cmd(
     input: SaveEmbeddingConfigInput,
 ) -> Result<(), AppError> {
     if input.config.dimensions == 0 {
-        return Err(AppError::Validation("Dimensions must be greater than 0".into()));
+        return Err(AppError::Validation(
+            "Dimensions must be greater than 0".into(),
+        ));
     }
 
     let previous_provider = {
@@ -564,7 +692,10 @@ pub async fn save_embedding_config_cmd(
         && input.config.provider != EmbeddingProvider::Ollama
     {
         if is_container_running(OLLAMA_CONTAINER).await {
-            info!("Stopping Ollama container (switched to {:?})", input.config.provider);
+            info!(
+                "Stopping Ollama container (switched to {:?})",
+                input.config.provider
+            );
             stop_container(OLLAMA_CONTAINER).await;
         }
     }
@@ -595,20 +726,40 @@ pub async fn enable_memory(
         s.embedding_config.clone()
     };
 
+    // Determine total container count for progress reporting
+    let total_containers = if embedding_config.provider == EmbeddingProvider::Ollama {
+        4 // Redis, Ollama, API, MCP
+    } else {
+        3 // Redis, API, MCP
+    };
+    let mut step: usize = 0;
+
     // Create Docker network for inter-container communication
     emit_progress(&app, "Creating Docker network...");
     ensure_network().await?;
 
-    // Start Redis container
+    // Migrate existing Redis container to use a named volume (no-op if already done)
+    migrate_redis_volume(&app).await?;
+
+    // Start Redis container with persistent volume
+    step += 1;
+    emit_step(&app, "Starting Redis...", step, total_containers);
     ensure_container(
         &app,
         REDIS_CONTAINER,
         &docker_run(&[
-            "run", "-d",
-            "--name", REDIS_CONTAINER,
-            "--network", NETWORK,
-            "-p", "6379:6379",
-            "-e", "REDIS_ARGS=--appendonly yes",
+            "run",
+            "-d",
+            "--name",
+            REDIS_CONTAINER,
+            "--network",
+            NETWORK,
+            "-p",
+            "6379:6379",
+            "-e",
+            "REDIS_ARGS=--appendonly yes",
+            "-v",
+            &format!("{REDIS_VOLUME}:/data"),
             "redis/redis-stack-server:latest",
         ]),
     )
@@ -616,7 +767,10 @@ pub async fn enable_memory(
 
     // Build env vars — aligned with agent-memory-server docker-compose
     let mut env = std::collections::HashMap::new();
-    env.insert("REDIS_URL".into(), format!("redis://{REDIS_CONTAINER}:6379"));
+    env.insert(
+        "REDIS_URL".into(),
+        format!("redis://{REDIS_CONTAINER}:6379"),
+    );
     env.insert("LONG_TERM_MEMORY".into(), "True".into());
     env.insert("ENABLE_TOPIC_EXTRACTION".into(), "True".into());
     env.insert("ENABLE_NER".into(), "True".into());
@@ -629,15 +783,22 @@ pub async fn enable_memory(
     match embedding_config.provider {
         EmbeddingProvider::Ollama => {
             // Start Ollama container on the same network
+            step += 1;
+            emit_step(&app, "Starting Ollama...", step, total_containers);
             ensure_container(
                 &app,
                 OLLAMA_CONTAINER,
                 &docker_run(&[
-                    "run", "-d",
-                    "--name", OLLAMA_CONTAINER,
-                    "--network", NETWORK,
-                    "-p", "11434:11434",
-                    "-v", "mcp-manager-ollama:/root/.ollama",
+                    "run",
+                    "-d",
+                    "--name",
+                    OLLAMA_CONTAINER,
+                    "--network",
+                    NETWORK,
+                    "-p",
+                    "11434:11434",
+                    "-v",
+                    "mcp-manager-ollama:/root/.ollama",
                     "ollama/ollama",
                 ]),
             )
@@ -661,7 +822,10 @@ pub async fn enable_memory(
         }
         EmbeddingProvider::Openai => {
             let api_key = load_openai_api_key(&app).ok_or_else(|| {
-                AppError::Protocol("OpenAI API key not configured. Save your API key in embedding settings first.".into())
+                AppError::Protocol(
+                    "OpenAI API key not configured. Save your API key in embedding settings first."
+                        .into(),
+                )
             })?;
 
             env.insert("GENERATION_MODEL".into(), "gpt-4o-mini".into());
@@ -671,12 +835,17 @@ pub async fn enable_memory(
     }
 
     // Start the API container (port 8000)
-    emit_progress(&app, "Starting memory API server...");
+    step += 1;
+    emit_step(&app, "Starting API server...", step, total_containers);
     let mut api_args = docker_run(&[
-        "run", "-d",
-        "--name", API_CONTAINER,
-        "--network", NETWORK,
-        "-p", "8000:8000",
+        "run",
+        "-d",
+        "--name",
+        API_CONTAINER,
+        "--network",
+        NETWORK,
+        "-p",
+        "8000:8000",
     ]);
     env.insert("PORT".into(), "8000".into());
     append_env(&mut api_args, &env);
@@ -684,13 +853,18 @@ pub async fn enable_memory(
     ensure_container(&app, API_CONTAINER, &api_args).await?;
 
     // Start the MCP SSE container (port 9050 → internal 9000)
-    emit_progress(&app, "Starting memory MCP server...");
+    step += 1;
+    emit_step(&app, "Starting MCP server...", step, total_containers);
     env.remove("PORT"); // MCP server uses its own default port
     let mut mcp_args = docker_run(&[
-        "run", "-d",
-        "--name", MCP_CONTAINER,
-        "--network", NETWORK,
-        "-p", "9050:9000",
+        "run",
+        "-d",
+        "--name",
+        MCP_CONTAINER,
+        "--network",
+        NETWORK,
+        "-p",
+        "9050:9000",
     ]);
     append_env(&mut mcp_args, &env);
     mcp_args.push(MEMORY_IMAGE.into());

@@ -33,7 +33,12 @@ pub async fn search_registry(
 
     let query = search.unwrap_or_default();
     let result = cache
-        .search(&query, offset.unwrap_or(0), limit.unwrap_or(40), &installed_ids)
+        .search(
+            &query,
+            offset.unwrap_or(0),
+            limit.unwrap_or(40),
+            &installed_ids,
+        )
         .await;
 
     Ok(result)

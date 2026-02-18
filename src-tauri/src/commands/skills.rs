@@ -67,7 +67,9 @@ fn parse_frontmatter(content: &str) -> (SkillFrontmatter, String) {
     if let Some(end_idx) = after_first.find("\n---") {
         let yaml_str = &after_first[..end_idx];
         let body_start = end_idx + 4; // skip "\n---"
-        let body = after_first[body_start..].trim_start_matches('\n').to_string();
+        let body = after_first[body_start..]
+            .trim_start_matches('\n')
+            .to_string();
 
         match serde_yaml::from_str::<SkillFrontmatter>(yaml_str) {
             Ok(fm) => (fm, body),
@@ -104,15 +106,13 @@ fn scan_skills(home: &PathBuf) -> Vec<(SkillInfo, PathBuf)> {
             // Read plugin.json
             let plugin_json_path = plugin_path.join(".claude-plugin/plugin.json");
             let (plugin_name, plugin_author) = match std::fs::read_to_string(&plugin_json_path) {
-                Ok(content) => {
-                    match serde_json::from_str::<PluginJson>(&content) {
-                        Ok(pj) => (
-                            pj.name.unwrap_or_default(),
-                            pj.author.and_then(|a| a.name).unwrap_or_default(),
-                        ),
-                        Err(_) => continue,
-                    }
-                }
+                Ok(content) => match serde_json::from_str::<PluginJson>(&content) {
+                    Ok(pj) => (
+                        pj.name.unwrap_or_default(),
+                        pj.author.and_then(|a| a.name).unwrap_or_default(),
+                    ),
+                    Err(_) => continue,
+                },
                 Err(_) => continue,
             };
 
@@ -135,10 +135,7 @@ fn scan_skills(home: &PathBuf) -> Vec<(SkillInfo, PathBuf)> {
                 };
 
                 let (fm, _body) = parse_frontmatter(&content);
-                let skill_dir_name = skill_entry
-                    .file_name()
-                    .to_string_lossy()
-                    .to_string();
+                let skill_dir_name = skill_entry.file_name().to_string_lossy().to_string();
 
                 let id = format!("{}/{}", plugin_name, skill_dir_name);
 

@@ -84,8 +84,7 @@ fn get_tool_definitions(home: &Path) -> Vec<ToolDef> {
         ToolDef {
             id: "claude-desktop".into(),
             name: "Claude Desktop".into(),
-            config_path: home
-                .join("Library/Application Support/Claude/claude_desktop_config.json"),
+            config_path: home.join("Library/Application Support/Claude/claude_desktop_config.json"),
             detection_paths: vec![PathBuf::from("/Applications/Claude.app")],
             config_format: ConfigFormat::McpServers,
         },
@@ -227,7 +226,11 @@ fn parse_mcp_servers(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
 
         existing.push(ExistingMcpServer {
             name: key.clone(),
-            transport: if has_url { "http".into() } else { "stdio".into() },
+            transport: if has_url {
+                "http".into()
+            } else {
+                "stdio".into()
+            },
             command: value
                 .get("command")
                 .and_then(|v| v.as_str())
@@ -309,7 +312,11 @@ fn parse_opencode(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
 
         existing.push(ExistingMcpServer {
             name: key.clone(),
-            transport: if is_remote { "http".into() } else { "stdio".into() },
+            transport: if is_remote {
+                "http".into()
+            } else {
+                "stdio".into()
+            },
             command,
             args,
             url: value.get("url").and_then(|v| v.as_str()).map(String::from),
@@ -357,8 +364,15 @@ fn parse_zed(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
         // Zed uses the same flat format: command, args, env at top level
         existing.push(ExistingMcpServer {
             name: key.clone(),
-            transport: if has_url { "http".into() } else { "stdio".into() },
-            command: value.get("command").and_then(|v| v.as_str()).map(String::from),
+            transport: if has_url {
+                "http".into()
+            } else {
+                "stdio".into()
+            },
+            command: value
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             args: value.get("args").and_then(|v| v.as_array()).map(|arr| {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(String::from))
@@ -410,8 +424,15 @@ fn parse_codex_toml(path: &Path) -> (bool, u16, Vec<ExistingMcpServer>) {
 
         existing.push(ExistingMcpServer {
             name: key.clone(),
-            transport: if has_url { "http".into() } else { "stdio".into() },
-            command: value.get("command").and_then(|v| v.as_str()).map(String::from),
+            transport: if has_url {
+                "http".into()
+            } else {
+                "stdio".into()
+            },
+            command: value
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             args: value.get("args").and_then(|v| v.as_array()).map(|arr| {
                 arr.iter()
                     .filter_map(|v| v.as_str().map(String::from))
@@ -477,13 +498,26 @@ fn import_mcp_servers(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             id: Uuid::new_v4().to_string(),
             name: key.clone(),
             enabled: true,
-            transport: if has_url { ServerTransport::Http } else { ServerTransport::Stdio },
-            command: value.get("command").and_then(|v| v.as_str()).map(String::from),
+            transport: if has_url {
+                ServerTransport::Http
+            } else {
+                ServerTransport::Stdio
+            },
+            command: value
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             args: value.get("args").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
             }),
             env: json_obj_to_env(value, "env"),
-            url: if has_url { value.get("url").and_then(|v| v.as_str()).map(String::from) } else { None },
+            url: if has_url {
+                value.get("url").and_then(|v| v.as_str()).map(String::from)
+            } else {
+                None
+            },
             headers: json_obj_to_env(value, "headers"),
             tags: None,
             status: Some(ServerStatus::Disconnected),
@@ -510,16 +544,30 @@ fn import_opencode(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             continue;
         }
 
-        let server_type = value.get("type").and_then(|v| v.as_str()).unwrap_or("local");
+        let server_type = value
+            .get("type")
+            .and_then(|v| v.as_str())
+            .unwrap_or("local");
         let is_remote = server_type == "remote";
 
         // OpenCode: "command" is an array, "environment" instead of "env"
-        let (command, args) = if let Some(cmd_arr) = value.get("command").and_then(|v| v.as_array()) {
-            let parts: Vec<String> = cmd_arr.iter().filter_map(|v| v.as_str().map(String::from)).collect();
+        let (command, args) = if let Some(cmd_arr) = value.get("command").and_then(|v| v.as_array())
+        {
+            let parts: Vec<String> = cmd_arr
+                .iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect();
             if parts.is_empty() {
                 (None, None)
             } else {
-                (Some(parts[0].clone()), if parts.len() > 1 { Some(parts[1..].to_vec()) } else { None })
+                (
+                    Some(parts[0].clone()),
+                    if parts.len() > 1 {
+                        Some(parts[1..].to_vec())
+                    } else {
+                        None
+                    },
+                )
             }
         } else {
             (None, None)
@@ -529,7 +577,11 @@ fn import_opencode(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             id: Uuid::new_v4().to_string(),
             name: key.clone(),
             enabled: true,
-            transport: if is_remote { ServerTransport::Http } else { ServerTransport::Stdio },
+            transport: if is_remote {
+                ServerTransport::Http
+            } else {
+                ServerTransport::Stdio
+            },
             command,
             args,
             env: json_obj_to_env(value, "environment"),
@@ -566,13 +618,26 @@ fn import_zed(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             id: Uuid::new_v4().to_string(),
             name: key.clone(),
             enabled: true,
-            transport: if has_url { ServerTransport::Http } else { ServerTransport::Stdio },
-            command: value.get("command").and_then(|v| v.as_str()).map(String::from),
+            transport: if has_url {
+                ServerTransport::Http
+            } else {
+                ServerTransport::Stdio
+            },
+            command: value
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             args: value.get("args").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
             }),
             env: json_obj_to_env(value, "env"),
-            url: if has_url { Some(entry_url.to_string()) } else { None },
+            url: if has_url {
+                Some(entry_url.to_string())
+            } else {
+                None
+            },
             headers: json_obj_to_env(value, "headers"),
             tags: None,
             status: Some(ServerStatus::Disconnected),
@@ -586,7 +651,8 @@ fn import_zed(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
 
 fn import_codex_toml(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
     let content = std::fs::read_to_string(path)?;
-    let config: toml::Value = content.parse()
+    let config: toml::Value = content
+        .parse()
         .map_err(|e| AppError::Protocol(format!("Invalid TOML: {e}")))?;
     let servers_table = match config.get("mcp_servers").and_then(|v| v.as_table()) {
         Some(t) => t,
@@ -611,13 +677,26 @@ fn import_codex_toml(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             id: Uuid::new_v4().to_string(),
             name: key.clone(),
             enabled: true,
-            transport: if has_url { ServerTransport::Http } else { ServerTransport::Stdio },
-            command: value.get("command").and_then(|v| v.as_str()).map(String::from),
+            transport: if has_url {
+                ServerTransport::Http
+            } else {
+                ServerTransport::Stdio
+            },
+            command: value
+                .get("command")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             args: value.get("args").and_then(|v| v.as_array()).map(|arr| {
-                arr.iter().filter_map(|v| v.as_str().map(String::from)).collect()
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
             }),
             env,
-            url: if has_url { Some(entry_url.to_string()) } else { None },
+            url: if has_url {
+                Some(entry_url.to_string())
+            } else {
+                None
+            },
             headers: None,
             tags: None,
             status: Some(ServerStatus::Disconnected),
@@ -812,10 +891,7 @@ pub async fn enable_integration(
     }; // lock dropped here
 
     if imported_count > 0 {
-        info!(
-            "Imported {imported_count} MCP server(s) from {}",
-            tool.name
-        );
+        info!("Imported {imported_count} MCP server(s) from {}", tool.name);
         crate::tray::rebuild_tray_menu(&app);
     }
 

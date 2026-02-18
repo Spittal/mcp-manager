@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-dialog": "~2.6.0",
     "@tauri-apps/plugin-opener": "^2.5.3",
     "d3-force": "^3.0.0",
     "pinia": "^3.0.4",

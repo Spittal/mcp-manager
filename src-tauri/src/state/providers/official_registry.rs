@@ -67,9 +67,7 @@ struct EnvVar {
 ///
 /// This is used to enrich MCPAnvil entries that have broken or missing install
 /// configs (e.g. `node path/to/server.js` placeholders).
-pub async fn fetch_install_index(
-    client: &reqwest::Client,
-) -> HashMap<String, InstallConfig> {
+pub async fn fetch_install_index(client: &reqwest::Client) -> HashMap<String, InstallConfig> {
     tracing::info!("Fetching install configs from official MCP registry...");
     let mut index = HashMap::new();
     let mut cursor: Option<String> = None;

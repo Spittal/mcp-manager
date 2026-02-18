@@ -130,6 +130,57 @@ pub struct MemorySearchResult {
     pub next_offset: Option<i64>,
 }
 
+// --- Import/Create types ---
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CreateMemoryRecord {
+    pub id: String,
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub namespace: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub topics: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub entities: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub event_date: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub updated_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_accessed: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pinned: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub access_count: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub memory_hash: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub discrete_memory_extracted: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction_strategy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extraction_strategy_config: Option<serde_json::Value>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub persisted_at: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extracted_from: Option<Vec<String>>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct CreateMemoryRequest {
+    pub memories: Vec<CreateMemoryRecord>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub deduplicate: Option<bool>,
+}
+
 // --- Client ---
 
 #[derive(Clone)]
@@ -213,4 +264,41 @@ impl MemoryApiClient {
             distance: None,
         })
     }
+
+    /// Search returning raw API records (snake_case) for export.
+    pub async fn search_memories_raw(
+        &self,
+        request: SearchRequest,
+    ) -> Result<Vec<MemoryRecordResult>, String> {
+        let resp = self
+            .client
+            .post(format!("{}/v1/long-term-memory/search", self.base_url))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| format!("Search failed: {e}"))?
+            .json::<MemorySearchResponse>()
+            .await
+            .map_err(|e| format!("Invalid search response: {e}"))?;
+
+        Ok(resp.memories)
+    }
+
+    pub async fn create_memories(&self, request: CreateMemoryRequest) -> Result<(), String> {
+        let resp = self
+            .client
+            .post(format!("{}/v1/long-term-memory/", self.base_url))
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| format!("Create failed: {e}"))?;
+
+        if !resp.status().is_success() {
+            let status = resp.status();
+            let body = resp.text().await.unwrap_or_default();
+            return Err(format!("Create failed ({status}): {body}"));
+        }
+        Ok(())
+    }
+
 }

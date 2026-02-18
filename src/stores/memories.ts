@@ -12,6 +12,8 @@ export const useMemoriesStore = defineStore('memories', () => {
   const offset = ref(0);
   const hasMore = ref(false);
   const selectedMemory = ref<MemoryItem | null>(null);
+  /** Set by Data Management after import/format to signal Browse should retry until results appear */
+  const indexing = ref(false);
 
   function reset() {
     items.value = [];
@@ -21,5 +23,5 @@ export const useMemoriesStore = defineStore('memories', () => {
     error.value = null;
   }
 
-  return { items, total, loading, error, query, filters, offset, hasMore, selectedMemory, reset };
+  return { items, total, loading, error, query, filters, offset, hasMore, selectedMemory, indexing, reset };
 });

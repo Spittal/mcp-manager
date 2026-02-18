@@ -74,10 +74,12 @@ pub async fn connect_server(
             emit_server_log(&app, &id, "info", &format!("Connecting to {url}"));
             match McpClient::connect_http(&url, server_config.headers, access_token).await {
                 Ok(client) => {
-                    emit_server_log(&app, &id, "info", &format!(
-                        "Connected — {} tools available",
-                        client.tools.len()
-                    ));
+                    emit_server_log(
+                        &app,
+                        &id,
+                        "info",
+                        &format!("Connected — {} tools available", client.tools.len()),
+                    );
                     Ok(client)
                 }
                 Err(e) => {
@@ -101,10 +103,7 @@ pub async fn connect_server(
                 &id,
                 "Authentication required. Click Authorize to sign in.",
             );
-            let _ = app.emit(
-                "oauth-required",
-                serde_json::json!({ "serverId": id }),
-            );
+            let _ = app.emit("oauth-required", serde_json::json!({ "serverId": id }));
             Err(AppError::AuthRequired(
                 "Authentication required. Click Authorize to sign in.".into(),
             ))
@@ -266,10 +265,12 @@ pub async fn reconnect_on_startup(app: AppHandle) {
                 emit_server_log(&app, &id, "info", &format!("Connecting to {url}"));
                 match McpClient::connect_http(&url, config.headers, access_token).await {
                     Ok(client) => {
-                        emit_server_log(&app, &id, "info", &format!(
-                            "Connected — {} tools available",
-                            client.tools.len()
-                        ));
+                        emit_server_log(
+                            &app,
+                            &id,
+                            "info",
+                            &format!("Connected — {} tools available", client.tools.len()),
+                        );
                         Ok(client)
                     }
                     Err(e) => {
@@ -282,8 +283,7 @@ pub async fn reconnect_on_startup(app: AppHandle) {
 
         match client_result {
             Ok(client) => {
-                if let Err(e) = finalize_connection(&app, &state, &connections, &id, client).await
-                {
+                if let Err(e) = finalize_connection(&app, &state, &connections, &id, client).await {
                     error!("Failed to finalize reconnection for {id}: {e}");
                 }
             }
@@ -376,10 +376,7 @@ async fn finalize_connection(
             .collect()
     };
 
-    info!(
-        "Connected to server {id} with {} tools",
-        tools.len()
-    );
+    info!("Connected to server {id} with {} tools", tools.len());
 
     // Store connection state in AppState
     {

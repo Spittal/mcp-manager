@@ -232,7 +232,10 @@ impl HttpTransport {
         let body = serde_json::to_value(&request)
             .map_err(|e| AppError::Transport(format!("Failed to serialize request: {e}")))?;
 
-        debug!("HTTP send_request id={id} method={method} -> {}", self.post_url);
+        debug!(
+            "HTTP send_request id={id} method={method} -> {}",
+            self.post_url
+        );
 
         if self.legacy_sse {
             return self.send_request_legacy_sse(id, &body, method).await;
@@ -314,10 +317,7 @@ impl HttpTransport {
         })?;
 
         if let Some(err) = &rpc_response.error {
-            return Err(AppError::Protocol(format!(
-                "{}: {}",
-                err.code, err.message
-            )));
+            return Err(AppError::Protocol(format!("{}: {}", err.code, err.message)));
         }
 
         Ok(rpc_response)
@@ -364,19 +364,15 @@ impl HttpTransport {
             }
         }
 
-        let response = req
-            .json(body)
-            .send()
-            .await
-            .map_err(|e| {
-                // Clean up pending entry on send failure
-                let pending = self.pending.clone();
-                let id_str = id_str.clone();
-                tokio::spawn(async move {
-                    pending.lock().await.remove(&id_str);
-                });
-                AppError::Transport(format!("HTTP request failed: {e}"))
-            })?;
+        let response = req.json(body).send().await.map_err(|e| {
+            // Clean up pending entry on send failure
+            let pending = self.pending.clone();
+            let id_str = id_str.clone();
+            tokio::spawn(async move {
+                pending.lock().await.remove(&id_str);
+            });
+            AppError::Transport(format!("HTTP request failed: {e}"))
+        })?;
 
         if response.status() == reqwest::StatusCode::UNAUTHORIZED {
             self.pending.lock().await.remove(&id_str);
@@ -397,18 +393,13 @@ impl HttpTransport {
         match tokio::time::timeout(timeout, rx).await {
             Ok(Ok(rpc_response)) => {
                 if let Some(err) = &rpc_response.error {
-                    return Err(AppError::Protocol(format!(
-                        "{}: {}",
-                        err.code, err.message
-                    )));
+                    return Err(AppError::Protocol(format!("{}: {}", err.code, err.message)));
                 }
                 Ok(rpc_response)
             }
-            Ok(Err(_)) => {
-                Err(AppError::Transport(
-                    "SSE stream closed while waiting for response".to_string(),
-                ))
-            }
+            Ok(Err(_)) => Err(AppError::Transport(
+                "SSE stream closed while waiting for response".to_string(),
+            )),
             Err(_) => {
                 self.pending.lock().await.remove(&id_str);
                 Err(AppError::Transport(format!(
@@ -485,7 +476,6 @@ impl HttpTransport {
 
         Ok(())
     }
-
 }
 
 impl Drop for HttpTransport {

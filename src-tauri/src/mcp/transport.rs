@@ -224,15 +224,14 @@ impl StdioTransport {
         let response = tokio::time::timeout(std::time::Duration::from_secs(60), rx)
             .await
             .map_err(|_| {
-                AppError::Transport(format!("Timeout waiting for response to {method} (id={id})"))
+                AppError::Transport(format!(
+                    "Timeout waiting for response to {method} (id={id})"
+                ))
             })?
             .map_err(|_| self.stderr_enriched_error("Server process exited unexpectedly"))?;
 
         if let Some(err) = &response.error {
-            return Err(AppError::Protocol(format!(
-                "{}: {}",
-                err.code, err.message
-            )));
+            return Err(AppError::Protocol(format!("{}: {}", err.code, err.message)));
         }
 
         Ok(response)

@@ -17,7 +17,7 @@ const { servers, lastError } = storeToRefs(store);
 const status = ref<MemoryStatus | null>(null);
 const toggling = ref(false);
 const error = ref<string | null>(null);
-const progress = ref<string | null>(null);
+const progress = ref<{ message: string; step?: number; total?: number } | null>(null);
 
 // Embedding config
 const embeddingStatus = ref<EmbeddingConfigStatus | null>(null);
@@ -83,6 +83,15 @@ const connectionError = computed(() => {
   const raw = lastError.value[memoryServer.value.id] ?? null;
   if (!raw) return null;
   return raw.length > 300 ? raw.slice(0, 300) + '...' : raw;
+});
+
+const progressText = computed(() => {
+  if (!progress.value) return null;
+  const p = progress.value;
+  if (p.step != null && p.total != null) {
+    return `${p.message} (${p.step}/${p.total})`;
+  }
+  return p.message;
 });
 
 const memorySubtitle = computed<string | undefined>(() => {
@@ -234,8 +243,8 @@ let unlistenStatus: UnlistenFn | null = null;
 onMounted(async () => {
   fetchStatus();
   fetchEmbeddingConfig();
-  unlistenProgress = await listen<{ message: string }>('memory-progress', (event) => {
-    progress.value = event.payload.message;
+  unlistenProgress = await listen<{ message: string; step?: number; total?: number }>('memory-progress', (event) => {
+    progress.value = event.payload;
   });
   unlistenStatus = await listen('server-status-changed', () => {
     fetchStatus();
@@ -270,7 +279,7 @@ onUnmounted(() => {
         <template v-if="toggling && progress" #subtitle>
           <span class="flex items-center gap-1.5 text-[10px] text-text-secondary">
             <span class="h-1 w-1 animate-pulse rounded-full bg-accent" />
-            {{ progress }}
+            {{ progressText }}
           </span>
         </template>
 
@@ -279,6 +288,41 @@ onUnmounted(() => {
           <div class="flex items-center gap-1.5 text-[11px] text-status-connecting">
             <span>&#9888;</span>
             <span>Docker not found</span>
+          </div>
+        </div>
+
+        <!-- Services status when enabled -->
+        <div v-if="status.enabled && !toggling" class="border-t border-border/50 px-3 py-2.5 space-y-1.5">
+          <span class="text-[10px] font-medium text-text-muted uppercase tracking-wide">Services</span>
+          <div class="space-y-1">
+            <div class="flex items-center gap-2 text-[11px]">
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                :class="status.redisRunning ? 'bg-status-connected' : 'bg-status-error'"
+              />
+              <span class="text-text-secondary">Redis</span>
+            </div>
+            <div v-if="status.embeddingProvider === 'ollama'" class="flex items-center gap-2 text-[11px]">
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                :class="status.ollamaRunning ? 'bg-status-connected' : 'bg-status-error'"
+              />
+              <span class="text-text-secondary">Ollama</span>
+            </div>
+            <div class="flex items-center gap-2 text-[11px]">
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                :class="status.apiRunning ? 'bg-status-connected' : 'bg-status-error'"
+              />
+              <span class="text-text-secondary">API Server</span>
+            </div>
+            <div class="flex items-center gap-2 text-[11px]">
+              <span
+                class="h-1.5 w-1.5 shrink-0 rounded-full"
+                :class="status.mcpRunning ? 'bg-status-connected' : 'bg-status-error'"
+              />
+              <span class="text-text-secondary">MCP Server</span>
+            </div>
           </div>
         </div>
       </ToggleCard>
