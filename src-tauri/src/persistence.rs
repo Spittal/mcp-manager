@@ -16,6 +16,7 @@ const STATS_KEY: &str = "stats";
 const EMBEDDING_CONFIG_KEY: &str = "embedding_config";
 const OPENAI_API_KEY_KEY: &str = "openai_api_key";
 const OAUTH_STORE_KEY: &str = "oauth_store";
+const TOOL_DISCOVERY_KEY: &str = "tool_discovery_enabled";
 
 // --- Generic helpers ---
 
@@ -90,4 +91,12 @@ pub fn load_oauth_store(app: &AppHandle) -> HashMap<String, OAuthState> {
 
 pub fn save_oauth_store(app: &AppHandle, entries: &HashMap<String, OAuthState>) {
     store_set(app, OAUTH_STORE_KEY, entries);
+}
+
+pub fn load_tool_discovery(app: &AppHandle) -> bool {
+    store_get(app, TOOL_DISCOVERY_KEY).unwrap_or(false)
+}
+
+pub fn save_tool_discovery(app: &AppHandle, enabled: bool) {
+    store_set(app, TOOL_DISCOVERY_KEY, &enabled);
 }

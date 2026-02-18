@@ -56,8 +56,8 @@ impl ProxyState {
 
 /// Shared state passed into axum handlers.
 #[derive(Clone)]
-struct ProxyAppState {
-    app_handle: AppHandle,
+pub(crate) struct ProxyAppState {
+    pub(crate) app_handle: AppHandle,
 }
 
 /// Start the MCP proxy HTTP server on a random available port.
@@ -70,6 +70,10 @@ pub async fn start_proxy(
     };
 
     let app = Router::new()
+        .route(
+            "/mcp/discovery",
+            post(super::discovery::handle_discovery_post).get(handle_mcp_get),
+        )
         .route(
             "/mcp/{server_id}",
             post(handle_mcp_post).get(handle_mcp_get),
@@ -303,7 +307,7 @@ async fn handle_tools_call(
 }
 
 /// Record a tool call in the stats store, persist periodically, and emit event.
-async fn record_tool_stats(
+pub(crate) async fn record_tool_stats(
     app: &AppHandle,
     server_id: &str,
     tool_name: &str,
@@ -394,7 +398,7 @@ fn collect_server_tools(server_id: &str, state: &ProxyAppState) -> Vec<Value> {
 }
 
 /// Build a JSON-RPC error response.
-fn make_error_response(id: Option<Value>, code: i64, message: &str) -> Value {
+pub(crate) fn make_error_response(id: Option<Value>, code: i64, message: &str) -> Value {
     serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,

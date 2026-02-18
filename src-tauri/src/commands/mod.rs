@@ -1,4 +1,5 @@
 pub mod connections;
+pub mod discovery;
 pub mod integrations;
 pub mod memories;
 pub mod memory;

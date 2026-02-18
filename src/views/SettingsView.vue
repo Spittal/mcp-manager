@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import SettingsIntegrations from '@/components/SettingsIntegrations.vue';
+import SettingsDiscovery from '@/components/SettingsDiscovery.vue';
 import SettingsMemory from '@/components/SettingsMemory.vue';
 import SettingsProxy from '@/components/SettingsProxy.vue';
 
-type Section = 'integrations' | 'memory' | 'proxy';
+type Section = 'integrations' | 'discovery' | 'memory' | 'proxy';
 
 const sections: { id: Section; label: string }[] = [
   { id: 'integrations', label: 'MCP Configs' },
+  { id: 'discovery', label: 'Discovery' },
   { id: 'memory', label: 'Memory' },
   { id: 'proxy', label: 'Proxy' },
 ];
@@ -39,6 +41,7 @@ const active = ref<Section>('integrations');
       <!-- Content -->
       <div class="flex-1 overflow-y-auto p-5">
         <SettingsIntegrations v-if="active === 'integrations'" />
+        <SettingsDiscovery v-if="active === 'discovery'" />
         <SettingsMemory v-if="active === 'memory'" />
         <SettingsProxy v-if="active === 'proxy'" />
       </div>

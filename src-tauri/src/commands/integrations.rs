@@ -709,10 +709,32 @@ fn home_dir() -> Result<PathBuf, AppError> {
     })
 }
 
+/// Build a single discovery endpoint URL entry.
+fn discovery_proxy_url(port: u16, tool_id: &str) -> (String, String) {
+    (
+        "mcp-manager".to_string(),
+        format!("http://localhost:{port}/mcp/discovery?client={tool_id}"),
+    )
+}
+
 /// Build proxy URL entries for all currently connected servers.
+/// In discovery mode, returns a single entry pointing to the discovery endpoint.
 fn connected_proxy_urls(app: &AppHandle, port: u16, tool_id: &str) -> Vec<(String, String)> {
     let state = app.state::<SharedState>();
     let s = state.lock().unwrap();
+
+    if s.tool_discovery_enabled {
+        let has_connected = s
+            .servers
+            .iter()
+            .any(|srv| srv.status == Some(ServerStatus::Connected));
+        return if has_connected {
+            vec![discovery_proxy_url(port, tool_id)]
+        } else {
+            Vec::new()
+        };
+    }
+
     s.servers
         .iter()
         .filter(|srv| srv.status == Some(ServerStatus::Connected))

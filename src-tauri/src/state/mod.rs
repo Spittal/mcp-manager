@@ -28,6 +28,8 @@ pub struct AppState {
     pub embedding_config: EmbeddingConfig,
     /// Logs emitted before the frontend event listener is ready.
     pub log_buffer: Vec<BufferedLog>,
+    /// When true, integrations get a single discovery endpoint instead of per-server entries.
+    pub tool_discovery_enabled: bool,
 }
 
 pub struct ConnectionState {
@@ -42,6 +44,7 @@ impl AppState {
             enabled_integrations: Vec::new(),
             embedding_config: EmbeddingConfig::default(),
             log_buffer: Vec::new(),
+            tool_discovery_enabled: false,
         }
     }
 }
