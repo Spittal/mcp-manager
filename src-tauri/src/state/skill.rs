@@ -20,4 +20,7 @@ pub struct InstalledSkill {
     pub enabled: bool,
     /// Install count from marketplace at install time
     pub installs: Option<u64>,
+    /// Whether this skill is managed by a feature (e.g. Memory) and cannot be uninstalled directly.
+    #[serde(default)]
+    pub managed: bool,
 }

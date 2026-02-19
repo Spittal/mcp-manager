@@ -149,6 +149,7 @@ pub struct InstalledSkillInfo {
     pub description: String,
     pub enabled: bool,
     pub installs: Option<u64>,
+    pub managed: bool,
 }
 
 impl From<&InstalledSkill> for InstalledSkillInfo {
@@ -161,6 +162,7 @@ impl From<&InstalledSkill> for InstalledSkillInfo {
             description: s.description.clone(),
             enabled: s.enabled,
             installs: s.installs,
+            managed: s.managed,
         }
     }
 }
@@ -213,6 +215,7 @@ pub async fn install_skill(
         content: content.clone(),
         enabled: true,
         installs,
+        managed: false,
     };
 
     let enabled_integrations: Vec<String>;
@@ -238,6 +241,16 @@ pub async fn uninstall_skill(
     state: State<'_, SharedState>,
     id: String,
 ) -> Result<(), AppError> {
+    // Check if managed — managed skills cannot be uninstalled directly
+    {
+        let s = state.lock().unwrap();
+        let skill = s.installed_skills.iter().find(|sk| sk.id == id)
+            .ok_or_else(|| AppError::Validation(format!("Skill not found: {id}")))?;
+        if skill.managed {
+            return Err(AppError::Validation("Cannot uninstall a managed skill. Disable the parent feature instead.".into()));
+        }
+    }
+
     let (skill_id, enabled_integrations) = {
         let mut s = state.lock().unwrap();
         let idx = s

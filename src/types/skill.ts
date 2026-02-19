@@ -32,6 +32,7 @@ export interface InstalledSkill {
   description: string;
   enabled: boolean;
   installs?: number;
+  managed?: boolean;
 }
 
 // Skill content response (for detail view)

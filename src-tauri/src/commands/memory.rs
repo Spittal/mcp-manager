@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, Manager, State};
-use tracing::info;
+use tracing::{info, warn};
 use uuid::Uuid;
 
 use crate::error::AppError;
@@ -911,6 +911,34 @@ pub async fn enable_memory(
     // Install the Claude Code memory skill
     install_memory_skill();
 
+    // Install the memory skill into the managed skills list if not already present
+    {
+        let mut s = state.lock().unwrap();
+        let skill_id = "using-memory-mcp";
+        if !s.installed_skills.iter().any(|sk| sk.skill_id == skill_id) {
+            let skill = crate::state::skill::InstalledSkill {
+                id: format!("mcp-manager/{skill_id}"),
+                name: "using-memory-mcp".to_string(),
+                skill_id: skill_id.to_string(),
+                source: "mcp-manager".to_string(),
+                description: "Search and store persistent memories using the agent-memory MCP server".to_string(),
+                content: include_str!("../../resources/using-memory-mcp-SKILL.md").to_string(),
+                enabled: true,
+                installs: None,
+                managed: true,
+            };
+            s.installed_skills.push(skill.clone());
+            crate::persistence::save_installed_skills(&app, &s.installed_skills);
+
+            // Write to enabled tool directories
+            let integrations = s.enabled_skill_integrations.clone();
+            drop(s);
+            if let Err(e) = crate::commands::skills_config::write_skill(skill_id, &include_str!("../../resources/using-memory-mcp-SKILL.md"), &integrations) {
+                warn!("Failed to write memory skill: {e}");
+            }
+        }
+    }
+
     info!("Memory server enabled (HTTP SSE on port 9050)");
     Ok(server)
 }
@@ -978,6 +1006,21 @@ pub async fn disable_memory(
 
     // Remove the Claude Code memory skill
     uninstall_memory_skill();
+
+    // Remove the managed memory skill from the skills list
+    {
+        let mut s = state.lock().unwrap();
+        let skill_id = "using-memory-mcp";
+        if let Some(idx) = s.installed_skills.iter().position(|sk| sk.skill_id == skill_id && sk.managed) {
+            s.installed_skills.remove(idx);
+            crate::persistence::save_installed_skills(&app, &s.installed_skills);
+            let integrations = s.enabled_skill_integrations.clone();
+            drop(s);
+            if let Err(e) = crate::commands::skills_config::remove_skill(skill_id, &integrations) {
+                warn!("Failed to remove memory skill: {e}");
+            }
+        }
+    }
 
     info!("Memory server disabled");
     Ok(())
