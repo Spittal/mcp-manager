@@ -50,6 +50,12 @@ function onSelectLocal(id: string, filePath: string) {
         :class="skill.enabled ? 'bg-status-connected' : 'bg-surface-3'"
       />
       <span class="truncate text-xs" :class="skill.enabled ? '' : 'text-text-muted'">{{ skill.name }}</span>
+      <span
+        v-if="skill.managed"
+        class="ml-auto shrink-0 rounded bg-status-connected/10 px-1.5 py-0.5 text-[9px] font-medium text-status-connected"
+      >
+        Managed
+      </span>
     </div>
 
     <!-- Local skill groups -->

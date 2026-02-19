@@ -46,6 +46,12 @@ async function onUninstall() {
       <h1 class="text-sm font-medium">{{ selectedInstalledSkill.name }}</h1>
       <span class="font-mono text-xs text-text-muted">{{ selectedInstalledSkill.source }}</span>
       <span
+        v-if="selectedInstalledSkill.managed"
+        class="rounded bg-status-connected/10 px-1.5 py-0.5 text-[10px] font-medium text-status-connected"
+      >
+        Managed
+      </span>
+      <span
         v-if="selectedInstalledSkill.installs != null"
         class="flex items-center gap-0.5 text-[10px] text-text-muted"
       >
@@ -65,27 +71,29 @@ async function onUninstall() {
             :class="selectedInstalledSkill.enabled ? 'translate-x-4' : 'translate-x-0'"
           />
         </button>
-        <template v-if="confirmUninstall">
+        <template v-if="!selectedInstalledSkill.managed">
+          <template v-if="confirmUninstall">
+            <button
+              class="rounded bg-status-error px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-status-error/80"
+              @click="onUninstall"
+            >
+              Confirm
+            </button>
+            <button
+              class="rounded bg-surface-3 px-3 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2"
+              @click="confirmUninstall = false"
+            >
+              Cancel
+            </button>
+          </template>
           <button
-            class="rounded bg-status-error px-3 py-1 text-[11px] font-medium text-white transition-colors hover:bg-status-error/80"
-            @click="onUninstall"
-          >
-            Confirm
-          </button>
-          <button
+            v-else
             class="rounded bg-surface-3 px-3 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2"
-            @click="confirmUninstall = false"
+            @click="confirmUninstall = true"
           >
-            Cancel
+            Uninstall
           </button>
         </template>
-        <button
-          v-else
-          class="rounded bg-surface-3 px-3 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2"
-          @click="confirmUninstall = true"
-        >
-          Uninstall
-        </button>
       </div>
     </header>
 
