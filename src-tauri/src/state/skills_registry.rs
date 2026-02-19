@@ -55,11 +55,17 @@ impl SkillsMarketplaceCache {
     }
 
     /// Search skills.sh and return results with installed status.
+    ///
+    /// A marketplace skill is marked `installed: true` if its full composite `id`
+    /// is in `installed_ids` (installed via the marketplace) **or** its `skill_id`
+    /// matches a directory found on disk in any tool's skills directory
+    /// (`local_skill_ids`).
     pub async fn search(
         &self,
         query: &str,
         limit: u32,
         installed_ids: &[String],
+        local_skill_ids: &[String],
     ) -> SkillsSearchResult {
         let resp = providers::skillssh::search_skills(&self.http, query, limit).await;
 
@@ -69,7 +75,8 @@ impl SkillsMarketplaceCache {
                     .skills
                     .into_iter()
                     .map(|entry| MarketplaceSkillSummary {
-                        installed: installed_ids.contains(&entry.id),
+                        installed: installed_ids.contains(&entry.id)
+                            || local_skill_ids.contains(&entry.skill_id),
                         id: entry.id,
                         name: entry.name,
                         source: entry.source,

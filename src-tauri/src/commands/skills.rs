@@ -54,6 +54,36 @@ fn parse_frontmatter(content: &str) -> (SkillFrontmatter, String) {
 // Marketplace commands
 // ---------------------------------------------------------------------------
 
+/// Collect all skill_ids found on disk across all tool directories.
+fn collect_local_skill_ids() -> Vec<String> {
+    let tools = match skills_config::get_skill_tool_definitions() {
+        Ok(t) => t,
+        Err(_) => return vec![],
+    };
+
+    let mut ids = Vec::new();
+    for tool in &tools {
+        if !tool.skills_dir.exists() {
+            continue;
+        }
+        let entries = match std::fs::read_dir(&tool.skills_dir) {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() && path.join("SKILL.md").exists() {
+                if let Some(name) = path.file_name() {
+                    ids.push(name.to_string_lossy().to_string());
+                }
+            }
+        }
+    }
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 #[tauri::command]
 pub async fn search_skills_marketplace(
     cache: State<'_, SkillsMarketplaceCache>,
@@ -66,7 +96,11 @@ pub async fn search_skills_marketplace(
         s.installed_skills.iter().map(|sk| sk.id.clone()).collect()
     };
 
-    let result = cache.search(&search, limit.unwrap_or(30), &installed_ids).await;
+    let local_skill_ids = collect_local_skill_ids();
+
+    let result = cache
+        .search(&search, limit.unwrap_or(30), &installed_ids, &local_skill_ids)
+        .await;
     Ok(result)
 }
 
