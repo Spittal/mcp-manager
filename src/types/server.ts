@@ -18,6 +18,7 @@ export interface ServerConfig {
   status?: ServerStatus;
   lastConnected?: string;
   managed?: boolean;
+  managedBy?: string;
   registryName?: string;
 }
 

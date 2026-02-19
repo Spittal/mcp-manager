@@ -85,6 +85,11 @@ watch(selectedServerId, () => {
   confirmingDelete.value = false;
 });
 
+function managedByLabel(managedBy: string): string {
+  if (managedBy === 'memory') return 'Memory';
+  return managedBy;
+}
+
 // --- Actions ---
 
 async function deleteServer() {
@@ -142,6 +147,10 @@ function formatTime(unixSecs: number): string {
       <span class="h-2 w-2 rounded-full" :class="statusColor(selectedServer.status)" />
       <h1 class="text-sm font-medium">{{ selectedServer.name }}</h1>
       <span class="font-mono text-xs text-text-muted">{{ selectedServer.transport }}</span>
+      <span
+        v-if="selectedServer.managedBy"
+        class="rounded bg-surface-2 px-1.5 py-0.5 text-[10px] text-text-muted"
+      >Managed by {{ managedByLabel(selectedServer.managedBy) }}</span>
       <div class="ml-auto flex items-center gap-2">
         <button
           class="relative h-5 w-9 rounded-full transition-colors"
@@ -156,13 +165,14 @@ function formatTime(unixSecs: number): string {
         </button>
 
         <router-link
+          v-if="!selectedServer.managedBy"
           :to="`/edit/${selectedServer.id}`"
           class="rounded bg-surface-3 px-3 py-1 text-xs text-text-secondary transition-colors hover:bg-surface-2"
         >
           Edit
         </router-link>
 
-        <template v-if="!selectedServer.managed">
+        <template v-if="!selectedServer.managedBy">
           <button
             v-if="!confirmingDelete"
             class="rounded bg-surface-3 px-3 py-1 text-xs text-text-muted transition-colors hover:bg-status-error/20 hover:text-status-error"
@@ -246,6 +256,13 @@ function formatTime(unixSecs: number): string {
             <div class="flex items-center gap-2">
               <span class="h-1.5 w-1.5 rounded-full" :class="statusColor(selectedServer.status)" />
               <span class="font-mono text-xs text-text-secondary capitalize">{{ statusLabel(selectedServer.status) }}</span>
+              <button
+                v-if="selectedServer.enabled && (!selectedServer.status || selectedServer.status === 'disconnected')"
+                class="ml-auto rounded bg-surface-3 px-2.5 py-1 text-[11px] text-text-secondary transition-colors hover:bg-surface-2"
+                @click="store.connectServer(selectedServer.id)"
+              >
+                Connect
+              </button>
             </div>
             <div v-if="isOAuthAuthorized || (selectedServer.status === 'connected' && serverOAuthStatus)" class="mt-2 flex items-center justify-between">
               <span class="text-[11px] text-accent">OAuth authorized</span>

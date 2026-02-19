@@ -6,7 +6,7 @@ use tauri::AppHandle;
 use tauri_plugin_store::StoreExt;
 use tracing::{error, info};
 
-use crate::state::{EmbeddingConfig, OAuthState, ServerConfig};
+use crate::state::{EmbeddingConfig, InstalledSkill, OAuthState, ServerConfig};
 use crate::stats::ServerStats;
 
 const STORE_FILE: &str = "config.json";
@@ -17,6 +17,8 @@ const EMBEDDING_CONFIG_KEY: &str = "embedding_config";
 const OPENAI_API_KEY_KEY: &str = "openai_api_key";
 const OAUTH_STORE_KEY: &str = "oauth_store";
 const TOOL_DISCOVERY_KEY: &str = "tool_discovery_enabled";
+const INSTALLED_SKILLS_KEY: &str = "installed_skills";
+const ENABLED_SKILL_INTEGRATIONS_KEY: &str = "enabled_skill_integrations";
 
 // --- Generic helpers ---
 
@@ -43,7 +45,20 @@ fn store_set<T: Serialize>(app: &AppHandle, key: &str, value: &T) {
 // --- Public API ---
 
 pub fn load_servers(app: &AppHandle) -> Vec<ServerConfig> {
-    let servers: Vec<ServerConfig> = store_get(app, SERVERS_KEY).unwrap_or_default();
+    let mut servers: Vec<ServerConfig> = store_get(app, SERVERS_KEY).unwrap_or_default();
+    // Migrate legacy `managed: true` → `managed_by: "memory"`
+    let mut migrated = false;
+    for server in &mut servers {
+        if server.managed == Some(true) && server.managed_by.is_none() {
+            server.managed_by = Some("memory".into());
+            server.managed = None;
+            migrated = true;
+        }
+    }
+    if migrated {
+        info!("Migrated legacy 'managed' field to 'managed_by'");
+        save_servers(app, &servers);
+    }
     info!("Loaded {} server configs from store", servers.len());
     servers
 }
@@ -99,4 +114,20 @@ pub fn load_tool_discovery(app: &AppHandle) -> bool {
 
 pub fn save_tool_discovery(app: &AppHandle, enabled: bool) {
     store_set(app, TOOL_DISCOVERY_KEY, &enabled);
+}
+
+pub fn load_installed_skills(app: &AppHandle) -> Vec<InstalledSkill> {
+    store_get(app, INSTALLED_SKILLS_KEY).unwrap_or_default()
+}
+
+pub fn save_installed_skills(app: &AppHandle, skills: &[InstalledSkill]) {
+    store_set(app, INSTALLED_SKILLS_KEY, &skills);
+}
+
+pub fn load_enabled_skill_integrations(app: &AppHandle) -> Vec<String> {
+    store_get(app, ENABLED_SKILL_INTEGRATIONS_KEY).unwrap_or_default()
+}
+
+pub fn save_enabled_skill_integrations(app: &AppHandle, ids: &[String]) {
+    store_set(app, ENABLED_SKILL_INTEGRATIONS_KEY, &ids);
 }

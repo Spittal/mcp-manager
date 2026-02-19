@@ -100,7 +100,7 @@ pub async fn install_registry_server(
         tags: None,
     };
 
-    crate::commands::servers::add_server_inner(&app, &state, input, Some(id))
+    crate::commands::servers::add_server_inner(&app, &state, input, Some(id), None)
 }
 
 #[tauri::command]

@@ -10,6 +10,7 @@ mod tray;
 use commands::status::SharedSystem;
 use mcp::client::McpConnections;
 use state::registry::MarketplaceCache;
+use state::skills_registry::SkillsMarketplaceCache;
 use state::{AppState, OAuthStore};
 use stats::StatsStore;
 use std::sync::{Arc, Mutex};
@@ -43,12 +44,22 @@ pub fn run() {
             );
 
             let tool_discovery_enabled = persistence::load_tool_discovery(app.handle());
+            let installed_skills = persistence::load_installed_skills(app.handle());
+            let enabled_skill_integrations =
+                persistence::load_enabled_skill_integrations(app.handle());
+            info!(
+                "Loaded {} installed skills, {} skill integrations",
+                installed_skills.len(),
+                enabled_skill_integrations.len(),
+            );
 
             let mut app_state = AppState::new();
             app_state.servers = servers;
             app_state.enabled_integrations = enabled_integrations;
             app_state.embedding_config = embedding_config;
             app_state.tool_discovery_enabled = tool_discovery_enabled;
+            app_state.installed_skills = installed_skills;
+            app_state.enabled_skill_integrations = enabled_skill_integrations;
             app.manage(Mutex::new(app_state));
             app.manage(tokio::sync::Mutex::new(McpConnections::new()));
             app.manage(tokio::sync::Mutex::new(OAuthStore::from_entries(oauth_entries)));
@@ -57,6 +68,7 @@ pub fn run() {
             let stats_store: StatsStore = Arc::new(RwLock::new(stats));
             app.manage(stats_store);
             app.manage(MarketplaceCache::new());
+            app.manage(SkillsMarketplaceCache::new());
 
             // Start the MCP proxy server
             let proxy_state = mcp::proxy::ProxyState::new();
@@ -97,8 +109,16 @@ pub fn run() {
             commands::integrations::disable_integration,
             commands::oauth::start_oauth_flow,
             commands::oauth::clear_oauth_tokens,
-            commands::skills::list_skills,
+            commands::skills::search_skills_marketplace,
+            commands::skills::get_skills_marketplace_detail,
+            commands::skills::list_installed_skills,
+            commands::skills::install_skill,
+            commands::skills::uninstall_skill,
+            commands::skills::toggle_skill,
             commands::skills::get_skill_content,
+            commands::skills::detect_skill_integrations,
+            commands::skills::enable_skill_integration,
+            commands::skills::disable_skill_integration,
             commands::memory::get_memory_status,
             commands::memory::enable_memory,
             commands::memory::disable_memory,
@@ -121,6 +141,12 @@ pub fn run() {
             commands::registry::fetch_readme,
             commands::discovery::get_discovery_mode,
             commands::discovery::set_discovery_mode,
+            commands::plugins::list_available_plugins,
+            commands::plugins::install_plugin,
+            commands::plugins::uninstall_plugin,
+            commands::plugins::toggle_plugin,
+            commands::plugins::list_installed_plugins,
+            commands::plugins::update_marketplace,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

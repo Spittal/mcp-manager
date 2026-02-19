@@ -30,6 +30,21 @@ const router = createRouter({
       component: () => import('./views/SkillDetailView.vue'),
     },
     {
+      path: '/skills/add',
+      name: 'add-skill',
+      component: () => import('./views/AddSkillView.vue'),
+    },
+    {
+      path: '/plugins',
+      name: 'plugins',
+      component: () => import('./views/PluginDetailView.vue'),
+    },
+    {
+      path: '/plugins/add',
+      name: 'add-plugin',
+      component: () => import('./views/AddPluginView.vue'),
+    },
+    {
       path: '/memories',
       name: 'memories',
       component: () => import('./views/MemoryBrowserView.vue'),

@@ -3,25 +3,30 @@ import { onMounted, ref } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import ServerList from './components/ServerList.vue';
 import SkillList from './components/SkillList.vue';
+import PluginList from './components/PluginList.vue';
 import { useServersStore } from '@/stores/servers';
 import { useSkillsStore } from '@/stores/skills';
+import { usePluginsStore } from '@/stores/plugins';
 import { useEvents } from '@/composables/useEvents';
 import { useServerLogs } from '@/composables/useServerLogs';
 
 const serversStore = useServersStore();
 const skillsStore = useSkillsStore();
+const pluginsStore = usePluginsStore();
 
 useEvents();
 useServerLogs();
 
 const serversCollapsed = ref(false);
 const skillsCollapsed = ref(false);
+const pluginsCollapsed = ref(false);
 const memoryCollapsed = ref(false);
 
 onMounted(async () => {
   await serversStore.loadServers();
   serversStore.autoConnectServers();
-  skillsStore.loadSkills();
+  skillsStore.loadInstalled();
+  pluginsStore.loadInstalled();
   // Set app icon at runtime (works during tauri dev)
   fetch('/app-icon.png')
     .then((r) => r.arrayBuffer())
@@ -73,8 +78,36 @@ onMounted(async () => {
               >&#9662;</span>
               Skills
             </button>
+            <router-link
+              to="/skills/add"
+              class="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover"
+            >
+              Add
+            </router-link>
           </div>
           <SkillList v-show="!skillsCollapsed" />
+
+          <!-- PLUGINS section -->
+          <div class="flex items-center justify-between border-b border-border px-3 py-2">
+            <button
+              class="flex items-center gap-1 font-mono text-xs font-medium tracking-wide text-text-secondary uppercase"
+              @click="pluginsCollapsed = !pluginsCollapsed"
+            >
+              <span
+                class="inline-block text-[10px] leading-none transition-transform"
+                :class="pluginsCollapsed ? '-rotate-90' : ''"
+              >&#9662;</span>
+              Plugins
+              <span class="ml-1 font-sans text-[9px] font-normal normal-case tracking-normal text-text-muted">Claude Code only</span>
+            </button>
+            <router-link
+              to="/plugins/add"
+              class="rounded bg-accent px-2 py-0.5 text-[11px] font-medium text-white transition-colors hover:bg-accent-hover"
+            >
+              Add
+            </router-link>
+          </div>
+          <PluginList v-show="!pluginsCollapsed" />
 
           <!-- MEMORY section -->
           <div class="flex items-center justify-between border-b border-border px-3 py-2">

@@ -18,6 +18,11 @@ function onSelect(id: string) {
   router.push('/');
 }
 
+function managedByLabel(managedBy: string): string {
+  if (managedBy === 'memory') return 'Memory';
+  return managedBy;
+}
+
 const contextMenuId = ref<string | null>(null);
 const contextMenuPos = ref({ x: 0, y: 0 });
 
@@ -84,6 +89,10 @@ async function deleteServer(id: string) {
         :class="statusColor(server.status ?? 'disconnected', server.enabled)"
       />
       <span class="truncate text-xs">{{ server.name }}</span>
+      <span
+        v-if="server.managedBy"
+        class="shrink-0 rounded bg-surface-2 px-1 text-[9px] text-text-muted"
+      >{{ managedByLabel(server.managedBy) }}</span>
       <span v-if="!server.enabled" class="ml-auto text-[10px] text-text-muted">off</span>
     </div>
     <div
@@ -107,7 +116,7 @@ async function deleteServer(id: string) {
           {{ servers.find(s => s.id === contextMenuId)?.enabled ? 'Disable' : 'Enable' }}
         </button>
         <button
-          v-if="!servers.find(s => s.id === contextMenuId)?.managed"
+          v-if="!servers.find(s => s.id === contextMenuId)?.managedBy"
           class="w-full px-3 py-1.5 text-left text-xs text-status-error transition-colors hover:bg-status-error/10"
           @click="deleteServer(contextMenuId!)"
         >

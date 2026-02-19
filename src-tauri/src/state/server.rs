@@ -24,8 +24,12 @@ pub struct ServerConfig {
     pub status: Option<ServerStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_connected: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Legacy field — only used for deserialization of old configs.
+    /// Migrated to `managed_by` on load.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
     pub managed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub managed_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub registry_name: Option<String>,
 }

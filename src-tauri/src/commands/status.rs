@@ -143,7 +143,7 @@ pub async fn get_system_status(
         let has_memory = s
             .servers
             .iter()
-            .any(|srv| srv.managed.unwrap_or(false) && srv.name == "Memory");
+            .any(|srv| srv.managed_by.as_deref() == Some("memory"));
         let names: HashMap<String, String> = s
             .servers
             .iter()

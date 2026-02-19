@@ -578,7 +578,7 @@ fn uninstall_memory_skill() {
 fn find_memory_server(servers: &[ServerConfig]) -> Option<&ServerConfig> {
     servers
         .iter()
-        .find(|s| s.managed.unwrap_or(false) && s.name == "Memory")
+        .find(|s| s.managed_by.as_deref() == Some("memory"))
 }
 
 #[tauri::command]
@@ -896,7 +896,8 @@ pub async fn enable_memory(
         tags: None,
         status: Some(ServerStatus::Disconnected),
         last_connected: None,
-        managed: Some(true),
+        managed: None,
+        managed_by: Some("memory".into()),
         registry_name: None,
     };
 

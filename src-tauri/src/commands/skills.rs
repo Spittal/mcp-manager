@@ -1,72 +1,36 @@
-use std::path::PathBuf;
-
 use serde::Serialize;
-use tracing::warn;
+use tauri::{AppHandle, State};
+use tracing::{info, warn};
 
+use crate::commands::skills_config;
 use crate::error::AppError;
+use crate::persistence;
+use crate::state::skill::InstalledSkill;
+use crate::state::skills_registry::{
+    MarketplaceSkillDetail, SkillsMarketplaceCache, SkillsSearchResult,
+};
+use crate::state::SharedState;
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillInfo {
-    pub id: String,
-    pub name: String,
-    pub description: String,
-    pub plugin_name: String,
-    pub plugin_author: String,
-    pub version: Option<String>,
-    pub tools: Option<String>,
-}
+// ---------------------------------------------------------------------------
+// YAML frontmatter parser (reused from old implementation)
+// ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct SkillDetail {
-    pub info: SkillInfo,
-    pub content: String,
-}
-
-/// YAML frontmatter fields we care about.
 #[derive(Debug, serde::Deserialize, Default)]
 struct SkillFrontmatter {
     name: Option<String>,
     description: Option<String>,
-    version: Option<String>,
-    tools: Option<String>,
 }
 
-/// Minimal plugin.json structure.
-#[derive(Debug, serde::Deserialize)]
-struct PluginJson {
-    name: Option<String>,
-    author: Option<PluginAuthor>,
-}
-
-#[derive(Debug, serde::Deserialize)]
-struct PluginAuthor {
-    name: Option<String>,
-}
-
-fn home_dir() -> Result<PathBuf, AppError> {
-    dirs::home_dir().ok_or_else(|| {
-        AppError::Io(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            "Home directory not found",
-        ))
-    })
-}
-
-/// Parse YAML frontmatter from a SKILL.md file.
-/// Returns (frontmatter, body) where body is everything after the closing `---`.
 fn parse_frontmatter(content: &str) -> (SkillFrontmatter, String) {
     let trimmed = content.trim_start();
     if !trimmed.starts_with("---") {
         return (SkillFrontmatter::default(), content.to_string());
     }
 
-    // Find the closing ---
     let after_first = &trimmed[3..];
     if let Some(end_idx) = after_first.find("\n---") {
         let yaml_str = &after_first[..end_idx];
-        let body_start = end_idx + 4; // skip "\n---"
+        let body_start = end_idx + 4;
         let body = after_first[body_start..]
             .trim_start_matches('\n')
             .to_string();
@@ -83,109 +47,371 @@ fn parse_frontmatter(content: &str) -> (SkillFrontmatter, String) {
     }
 }
 
-/// Scan all skills from ~/.claude/plugins/marketplaces/*/plugins/*/skills/*/SKILL.md
-fn scan_skills(home: &PathBuf) -> Vec<(SkillInfo, PathBuf)> {
-    let marketplaces_dir = home.join(".claude/plugins/marketplaces");
-    let mut results = Vec::new();
+// ---------------------------------------------------------------------------
+// Marketplace commands
+// ---------------------------------------------------------------------------
 
-    let marketplace_entries = match std::fs::read_dir(&marketplaces_dir) {
-        Ok(entries) => entries,
-        Err(_) => return results,
+#[tauri::command]
+pub async fn search_skills_marketplace(
+    cache: State<'_, SkillsMarketplaceCache>,
+    state: State<'_, SharedState>,
+    search: String,
+    limit: Option<u32>,
+) -> Result<SkillsSearchResult, AppError> {
+    let installed_ids: Vec<String> = {
+        let s = state.lock().unwrap();
+        s.installed_skills.iter().map(|sk| sk.id.clone()).collect()
     };
 
-    for marketplace_entry in marketplace_entries.flatten() {
-        let plugins_dir = marketplace_entry.path().join("plugins");
-        let plugin_entries = match std::fs::read_dir(&plugins_dir) {
-            Ok(entries) => entries,
-            Err(_) => continue,
-        };
-
-        for plugin_entry in plugin_entries.flatten() {
-            let plugin_path = plugin_entry.path();
-
-            // Read plugin.json
-            let plugin_json_path = plugin_path.join(".claude-plugin/plugin.json");
-            let (plugin_name, plugin_author) = match std::fs::read_to_string(&plugin_json_path) {
-                Ok(content) => match serde_json::from_str::<PluginJson>(&content) {
-                    Ok(pj) => (
-                        pj.name.unwrap_or_default(),
-                        pj.author.and_then(|a| a.name).unwrap_or_default(),
-                    ),
-                    Err(_) => continue,
-                },
-                Err(_) => continue,
-            };
-
-            // Scan skills/ directory
-            let skills_dir = plugin_path.join("skills");
-            let skill_entries = match std::fs::read_dir(&skills_dir) {
-                Ok(entries) => entries,
-                Err(_) => continue,
-            };
-
-            for skill_entry in skill_entries.flatten() {
-                let skill_md_path = skill_entry.path().join("SKILL.md");
-                if !skill_md_path.exists() {
-                    continue;
-                }
-
-                let content = match std::fs::read_to_string(&skill_md_path) {
-                    Ok(c) => c,
-                    Err(_) => continue,
-                };
-
-                let (fm, _body) = parse_frontmatter(&content);
-                let skill_dir_name = skill_entry.file_name().to_string_lossy().to_string();
-
-                let id = format!("{}/{}", plugin_name, skill_dir_name);
-
-                results.push((
-                    SkillInfo {
-                        id,
-                        name: fm.name.unwrap_or_else(|| skill_dir_name.clone()),
-                        description: fm.description.unwrap_or_default(),
-                        plugin_name: plugin_name.clone(),
-                        plugin_author: plugin_author.clone(),
-                        version: fm.version,
-                        tools: fm.tools,
-                    },
-                    skill_md_path,
-                ));
-            }
-        }
-    }
-
-    results.sort_by(|a, b| a.0.name.to_lowercase().cmp(&b.0.name.to_lowercase()));
-    results
+    let result = cache.search(&search, limit.unwrap_or(30), &installed_ids).await;
+    Ok(result)
 }
 
 #[tauri::command]
-pub async fn list_skills() -> Result<Vec<SkillInfo>, AppError> {
-    let home = home_dir()?;
-    let skills = scan_skills(&home);
-    Ok(skills.into_iter().map(|(info, _)| info).collect())
-}
-
-#[tauri::command]
-pub async fn get_skill_content(id: String) -> Result<SkillDetail, AppError> {
-    let home = home_dir()?;
-    let skills = scan_skills(&home);
-
-    let (info, path) = skills
-        .into_iter()
-        .find(|(info, _)| info.id == id)
+pub async fn get_skills_marketplace_detail(
+    cache: State<'_, SkillsMarketplaceCache>,
+    source: String,
+    skill_id: String,
+    name: String,
+    installs: u64,
+) -> Result<MarketplaceSkillDetail, AppError> {
+    let content = cache
+        .fetch_skill_content(&source, &skill_id)
+        .await
         .ok_or_else(|| {
-            AppError::Io(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                format!("Skill not found: {id}"),
+            AppError::Protocol(format!(
+                "Could not fetch SKILL.md for {source}/{skill_id}"
             ))
         })?;
 
-    let content = std::fs::read_to_string(&path)?;
-    let (_fm, body) = parse_frontmatter(&content);
+    let (fm, _body) = parse_frontmatter(&content);
 
-    Ok(SkillDetail {
-        info,
+    Ok(MarketplaceSkillDetail {
+        id: format!("{source}/{skill_id}"),
+        name: fm.name.unwrap_or(name),
+        source: source.clone(),
+        skill_id,
+        installs,
+        description: fm.description.unwrap_or_default(),
+        content,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Management commands
+// ---------------------------------------------------------------------------
+
+/// Frontend-facing installed skill (without full content to keep payloads small).
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InstalledSkillInfo {
+    pub id: String,
+    pub name: String,
+    pub skill_id: String,
+    pub source: String,
+    pub description: String,
+    pub enabled: bool,
+    pub installs: Option<u64>,
+}
+
+impl From<&InstalledSkill> for InstalledSkillInfo {
+    fn from(s: &InstalledSkill) -> Self {
+        Self {
+            id: s.id.clone(),
+            name: s.name.clone(),
+            skill_id: s.skill_id.clone(),
+            source: s.source.clone(),
+            description: s.description.clone(),
+            enabled: s.enabled,
+            installs: s.installs,
+        }
+    }
+}
+
+#[tauri::command]
+pub async fn list_installed_skills(
+    state: State<'_, SharedState>,
+) -> Result<Vec<InstalledSkillInfo>, AppError> {
+    let s = state.lock().unwrap();
+    Ok(s.installed_skills.iter().map(InstalledSkillInfo::from).collect())
+}
+
+#[tauri::command]
+pub async fn install_skill(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    cache: State<'_, SkillsMarketplaceCache>,
+    id: String,
+    name: String,
+    source: String,
+    skill_id: String,
+    installs: Option<u64>,
+) -> Result<InstalledSkillInfo, AppError> {
+    // Check if already installed
+    {
+        let s = state.lock().unwrap();
+        if s.installed_skills.iter().any(|sk| sk.id == id) {
+            return Err(AppError::Validation(format!("Skill already installed: {id}")));
+        }
+    }
+
+    // Fetch SKILL.md content
+    let content = cache
+        .fetch_skill_content(&source, &skill_id)
+        .await
+        .ok_or_else(|| {
+            AppError::Protocol(format!(
+                "Could not fetch SKILL.md for {source}/{skill_id}"
+            ))
+        })?;
+
+    let (fm, _body) = parse_frontmatter(&content);
+
+    let skill = InstalledSkill {
+        id: id.clone(),
+        name: fm.name.unwrap_or(name),
+        skill_id: skill_id.clone(),
+        source,
+        description: fm.description.unwrap_or_default(),
+        content: content.clone(),
+        enabled: true,
+        installs,
+    };
+
+    let enabled_integrations: Vec<String>;
+    {
+        let mut s = state.lock().unwrap();
+        s.installed_skills.push(skill.clone());
+        enabled_integrations = s.enabled_skill_integrations.clone();
+        persistence::save_installed_skills(&app, &s.installed_skills);
+    }
+
+    // Write SKILL.md to all enabled tool directories
+    if let Err(e) = skills_config::write_skill(&skill_id, &content, &enabled_integrations) {
+        warn!("Failed to write skill files: {e}");
+    }
+
+    info!("Installed skill: {id}");
+    Ok(InstalledSkillInfo::from(&skill))
+}
+
+#[tauri::command]
+pub async fn uninstall_skill(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+) -> Result<(), AppError> {
+    let (skill_id, enabled_integrations) = {
+        let mut s = state.lock().unwrap();
+        let idx = s
+            .installed_skills
+            .iter()
+            .position(|sk| sk.id == id)
+            .ok_or_else(|| AppError::Validation(format!("Skill not found: {id}")))?;
+
+        let skill = s.installed_skills.remove(idx);
+        let integrations = s.enabled_skill_integrations.clone();
+        persistence::save_installed_skills(&app, &s.installed_skills);
+        (skill.skill_id, integrations)
+    };
+
+    // Remove SKILL.md from all enabled tool directories
+    if let Err(e) = skills_config::remove_skill(&skill_id, &enabled_integrations) {
+        warn!("Failed to remove skill files: {e}");
+    }
+
+    info!("Uninstalled skill: {id}");
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn toggle_skill(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+    enabled: bool,
+) -> Result<InstalledSkillInfo, AppError> {
+    let (skill_id, content, enabled_integrations) = {
+        let mut s = state.lock().unwrap();
+        let skill = s
+            .installed_skills
+            .iter_mut()
+            .find(|sk| sk.id == id)
+            .ok_or_else(|| AppError::Validation(format!("Skill not found: {id}")))?;
+
+        skill.enabled = enabled;
+        let skill_id = skill.skill_id.clone();
+        let content = skill.content.clone();
+        let integrations = s.enabled_skill_integrations.clone();
+        persistence::save_installed_skills(&app, &s.installed_skills);
+        (skill_id, content, integrations)
+    };
+
+    if enabled {
+        if let Err(e) = skills_config::write_skill(&skill_id, &content, &enabled_integrations) {
+            warn!("Failed to write skill files on enable: {e}");
+        }
+    } else {
+        if let Err(e) = skills_config::remove_skill(&skill_id, &enabled_integrations) {
+            warn!("Failed to remove skill files on disable: {e}");
+        }
+    }
+
+    let s = state.lock().unwrap();
+    let skill = s.installed_skills.iter().find(|sk| sk.id == id).unwrap();
+    Ok(InstalledSkillInfo::from(skill))
+}
+
+#[tauri::command]
+pub async fn get_skill_content(
+    state: State<'_, SharedState>,
+    id: String,
+) -> Result<SkillContentResponse, AppError> {
+    let s = state.lock().unwrap();
+    let skill = s
+        .installed_skills
+        .iter()
+        .find(|sk| sk.id == id)
+        .ok_or_else(|| AppError::Validation(format!("Skill not found: {id}")))?;
+
+    let (_fm, body) = parse_frontmatter(&skill.content);
+
+    Ok(SkillContentResponse {
+        id: skill.id.clone(),
+        name: skill.name.clone(),
         content: body,
+    })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillContentResponse {
+    pub id: String,
+    pub name: String,
+    pub content: String,
+}
+
+// ---------------------------------------------------------------------------
+// Skill integration commands (Settings > Skills)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkillToolInfo {
+    pub id: String,
+    pub name: String,
+    pub installed: bool,
+    pub enabled: bool,
+    pub skills_path: String,
+}
+
+/// Detect which tools support skills, whether they're installed, and whether
+/// skill management is enabled for each.
+#[tauri::command]
+pub async fn detect_skill_integrations(
+    state: State<'_, SharedState>,
+) -> Result<Vec<SkillToolInfo>, AppError> {
+    let tools = skills_config::get_skill_tool_definitions()?;
+    let enabled_ids: Vec<String> = {
+        let s = state.lock().unwrap();
+        s.enabled_skill_integrations.clone()
+    };
+
+    let results = tools
+        .into_iter()
+        .map(|tool| {
+            // A tool is "installed" if its parent directory exists
+            // e.g. ~/.claude/ exists means Claude Code is likely installed
+            let parent = tool.skills_dir.parent();
+            let installed = parent.map(|p| p.exists()).unwrap_or(false);
+
+            SkillToolInfo {
+                id: tool.id.to_string(),
+                name: tool.name.to_string(),
+                installed,
+                enabled: enabled_ids.contains(&tool.id.to_string()),
+                skills_path: tool.skills_dir.display().to_string(),
+            }
+        })
+        .collect();
+
+    Ok(results)
+}
+
+/// Enable skill file management for a tool — writes all enabled skills to that tool's directory.
+#[tauri::command]
+pub async fn enable_skill_integration(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+) -> Result<SkillToolInfo, AppError> {
+    if !skills_config::supports_skills(&id) {
+        return Err(AppError::Validation(format!(
+            "Tool {id} does not support skills"
+        )));
+    }
+
+    let (installed_skills, tools) = {
+        let mut s = state.lock().unwrap();
+        if !s.enabled_skill_integrations.contains(&id) {
+            s.enabled_skill_integrations.push(id.clone());
+            persistence::save_enabled_skill_integrations(&app, &s.enabled_skill_integrations);
+        }
+        (s.installed_skills.clone(), skills_config::get_skill_tool_definitions()?)
+    };
+
+    // Sync all enabled skills to this tool
+    if let Err(e) = skills_config::sync_skills_for_tool(&id, &installed_skills) {
+        warn!("Failed to sync skills for {id}: {e}");
+    }
+
+    let tool = tools.iter().find(|t| t.id == id).unwrap();
+    let parent = tool.skills_dir.parent();
+    let installed = parent.map(|p| p.exists()).unwrap_or(false);
+
+    info!("Enabled skill integration for {}", tool.name);
+
+    Ok(SkillToolInfo {
+        id: tool.id.to_string(),
+        name: tool.name.to_string(),
+        installed,
+        enabled: true,
+        skills_path: tool.skills_dir.display().to_string(),
+    })
+}
+
+/// Disable skill file management for a tool — removes all managed skill files.
+#[tauri::command]
+pub async fn disable_skill_integration(
+    app: AppHandle,
+    state: State<'_, SharedState>,
+    id: String,
+) -> Result<SkillToolInfo, AppError> {
+    let (installed_skills, tools) = {
+        let mut s = state.lock().unwrap();
+        s.enabled_skill_integrations.retain(|i| i != &id);
+        persistence::save_enabled_skill_integrations(&app, &s.enabled_skill_integrations);
+        (s.installed_skills.clone(), skills_config::get_skill_tool_definitions()?)
+    };
+
+    // Remove all managed skill files from this tool
+    if let Err(e) = skills_config::remove_all_skills_for_tool(&id, &installed_skills) {
+        warn!("Failed to remove skills for {id}: {e}");
+    }
+
+    let tool = tools.iter().find(|t| t.id == id).ok_or_else(|| {
+        AppError::Validation(format!("Unknown skill tool: {id}"))
+    })?;
+    let parent = tool.skills_dir.parent();
+    let installed = parent.map(|p| p.exists()).unwrap_or(false);
+
+    info!("Disabled skill integration for {}", tool.name);
+
+    Ok(SkillToolInfo {
+        id: tool.id.to_string(),
+        name: tool.name.to_string(),
+        installed,
+        enabled: false,
+        skills_path: tool.skills_dir.display().to_string(),
     })
 }

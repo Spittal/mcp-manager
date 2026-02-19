@@ -34,6 +34,7 @@ pub fn add_server_inner(
     state: &SharedState,
     input: ServerConfigInput,
     registry_name: Option<String>,
+    managed_by: Option<String>,
 ) -> Result<ServerConfig, AppError> {
     let input = maybe_rewrite_proxy(input);
     let server = ServerConfig {
@@ -50,6 +51,7 @@ pub fn add_server_inner(
         status: Some(ServerStatus::Disconnected),
         last_connected: None,
         managed: None,
+        managed_by,
         registry_name,
     };
 
@@ -74,7 +76,7 @@ pub async fn add_server(
     state: State<'_, SharedState>,
     input: ServerConfigInput,
 ) -> Result<ServerConfig, AppError> {
-    add_server_inner(&app, &state, input, None)
+    add_server_inner(&app, &state, input, None, None)
 }
 
 #[tauri::command]

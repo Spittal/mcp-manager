@@ -1,12 +1,16 @@
 mod embedding;
 mod oauth;
+pub mod plugin;
 mod providers;
 pub mod registry;
+pub mod skill;
+pub mod skills_registry;
 mod server;
 
 pub use embedding::*;
 pub use oauth::*;
 pub use server::*;
+pub use skill::InstalledSkill;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -30,6 +34,10 @@ pub struct AppState {
     pub log_buffer: Vec<BufferedLog>,
     /// When true, integrations get a single discovery endpoint instead of per-server entries.
     pub tool_discovery_enabled: bool,
+    /// Skills installed from the skills.sh marketplace.
+    pub installed_skills: Vec<InstalledSkill>,
+    /// IDs of AI tools that should receive SKILL.md files (separate from MCP integrations).
+    pub enabled_skill_integrations: Vec<String>,
 }
 
 pub struct ConnectionState {
@@ -45,6 +53,8 @@ impl AppState {
             embedding_config: EmbeddingConfig::default(),
             log_buffer: Vec::new(),
             tool_discovery_enabled: false,
+            installed_skills: Vec::new(),
+            enabled_skill_integrations: Vec::new(),
         }
     }
 }

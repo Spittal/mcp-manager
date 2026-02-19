@@ -523,6 +523,7 @@ fn import_mcp_servers(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             status: Some(ServerStatus::Disconnected),
             last_connected: None,
             managed: None,
+            managed_by: None,
             registry_name: None,
         });
     }
@@ -591,6 +592,7 @@ fn import_opencode(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             status: Some(ServerStatus::Disconnected),
             last_connected: None,
             managed: None,
+            managed_by: None,
             registry_name: None,
         });
     }
@@ -643,6 +645,7 @@ fn import_zed(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             status: Some(ServerStatus::Disconnected),
             last_connected: None,
             managed: None,
+            managed_by: None,
             registry_name: None,
         });
     }
@@ -702,6 +705,7 @@ fn import_codex_toml(path: &Path) -> Result<Vec<ServerConfig>, AppError> {
             status: Some(ServerStatus::Disconnected),
             last_connected: None,
             managed: None,
+            managed_by: None,
             registry_name: None,
         });
     }
