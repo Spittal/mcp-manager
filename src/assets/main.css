@@ -60,3 +60,45 @@ html, body, #app {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--color-border-active);
 }
+
+/* Skill markdown rendering */
+.prose-skill h1, .prose-skill h2, .prose-skill h3 {
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.5em;
+}
+.prose-skill h1 { font-size: 1.1em; }
+.prose-skill h2 { font-size: 1em; }
+.prose-skill h3 { font-size: 0.95em; }
+.prose-skill p { margin-bottom: 0.5em; }
+.prose-skill ul, .prose-skill ol { padding-left: 1.5em; margin-bottom: 0.5em; }
+.prose-skill li { margin-bottom: 0.25em; }
+.prose-skill code {
+  background: var(--color-surface-2, #1e1e2e);
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+.prose-skill pre {
+  background: var(--color-surface-2, #1e1e2e);
+  padding: 0.75em;
+  border-radius: 4px;
+  overflow-x: auto;
+  margin-bottom: 0.75em;
+}
+.prose-skill pre code {
+  background: none;
+  padding: 0;
+}
+.prose-skill table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 0.75em;
+}
+.prose-skill th, .prose-skill td {
+  border: 1px solid var(--color-border, #333);
+  padding: 0.35em 0.5em;
+  text-align: left;
+}
+.prose-skill strong { font-weight: 600; }
+.prose-skill a { color: var(--color-accent, #89b4fa); text-decoration: underline; }
