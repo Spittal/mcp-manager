@@ -807,15 +807,12 @@ fn connected_proxy_urls(app: &AppHandle, port: u16, tool_id: &str) -> Vec<(Strin
     let s = state.lock().unwrap();
 
     if s.tool_discovery_enabled {
-        let has_connected = s
-            .servers
-            .iter()
-            .any(|srv| srv.status == Some(ServerStatus::Connected));
-        return if has_connected {
-            vec![discovery_proxy_url(port, tool_id)]
-        } else {
-            Vec::new()
-        };
+        // Always expose the discovery endpoint when discovery mode is on.
+        // The endpoint itself handles "no servers connected" gracefully via
+        // list_servers / discover_tools responses. Gating on has_connected
+        // causes a startup race: proxy starts before servers reconnect,
+        // writing empty mcpServers to integration configs.
+        return vec![discovery_proxy_url(port, tool_id)];
     }
 
     s.servers
