@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
@@ -63,7 +63,6 @@ impl ProxyState {
 #[derive(Clone)]
 pub(crate) struct ProxyAppState {
     pub(crate) app_handle: AppHandle,
-    pub(crate) sessions: Arc<RwLock<HashSet<String>>>,
 }
 
 /// Start the MCP proxy HTTP server on a random available port.
@@ -73,7 +72,6 @@ pub async fn start_proxy(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let state = ProxyAppState {
         app_handle: app_handle.clone(),
-        sessions: Arc::new(RwLock::new(HashSet::new())),
     };
 
     let app = Router::new()
@@ -215,9 +213,8 @@ async fn handle_mcp_post(
                 .unwrap_or("");
             let negotiated = negotiate_version(client_version);
 
-            // Generate and store a new session ID
+            // Generate a session ID for this connection
             let session_id = new_session_id();
-            state.sessions.write().await.insert(session_id.clone());
 
             let response = serde_json::json!({
                 "jsonrpc": "2.0",

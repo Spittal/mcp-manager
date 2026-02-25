@@ -71,12 +71,11 @@ pub(crate) async fn handle_discovery_post(
                 .as_ref()
                 .and_then(|p| p.get("protocolVersion"))
                 .and_then(|v| v.as_str())
-                .unwrap_or("2025-03-26");
+                .unwrap_or("");
             let negotiated = negotiate_version(client_version);
 
-            // Generate and store a new session ID
+            // Generate a session ID for this connection
             let session_id = new_session_id();
-            state.sessions.write().await.insert(session_id.clone());
 
             let response = serde_json::json!({
                 "jsonrpc": "2.0",
