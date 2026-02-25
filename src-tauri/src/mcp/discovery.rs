@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use axum::extract::{Query, State as AxumState};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::Json;
 use serde_json::Value;
@@ -10,15 +10,25 @@ use tokio::time::Instant;
 use tracing::{error, info};
 
 use crate::mcp::client::SharedConnections;
+use crate::mcp::http_common::{
+    accepted_response, client_accepts_sse, json_response, mcp_response, negotiate_version,
+    new_session_id, validate_origin,
+};
 use crate::mcp::proxy::{make_error_response, record_tool_stats, ProxyAppState};
 use crate::state::SharedState;
 
 /// Handle POST requests to `/mcp/discovery` — the single discovery endpoint.
 pub(crate) async fn handle_discovery_post(
     AxumState(state): AxumState<ProxyAppState>,
+    headers: HeaderMap,
     Query(query): Query<HashMap<String, String>>,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
+    // Origin validation (MCP Streamable HTTP spec)
+    if let Err((status, msg)) = validate_origin(&headers) {
+        return (status, HeaderMap::new(), msg);
+    }
+
     // Check if discovery mode is enabled
     {
         let app_state = state.app_handle.state::<SharedState>();
@@ -29,10 +39,7 @@ pub(crate) async fn handle_discovery_post(
                 -32001,
                 "Tool discovery mode is not enabled",
             );
-            let body_str = serde_json::to_string(&resp).unwrap_or_default();
-            let mut headers = HeaderMap::new();
-            headers.insert("content-type", "application/json".parse().unwrap());
-            return (StatusCode::OK, headers, body_str);
+            return json_response(&resp, None);
         }
     }
 
@@ -44,43 +51,65 @@ pub(crate) async fn handle_discovery_post(
     let params = body.get("params").cloned();
     let client_id = query.get("client").cloned().unwrap_or_default();
 
-    // Notifications get 202 with no body
+    let use_sse = client_accepts_sse(&headers);
+    let req_session: Option<String> = headers
+        .get("mcp-session-id")
+        .and_then(|v| v.to_str().ok())
+        .map(String::from);
+
+    // Notifications (no id) get 202 Accepted with no body
     if id.is_none() {
-        return (StatusCode::ACCEPTED, HeaderMap::new(), String::new());
+        return accepted_response(req_session.as_deref());
     }
 
     info!("Discovery endpoint: {method}");
 
-    let response = match method {
-        "initialize" => handle_initialize(id),
-        "tools/list" => handle_tools_list(id),
-        "tools/call" => handle_tools_call(id, params, &client_id, &state).await,
-        _ => make_error_response(id, -32601, &format!("Method not found: {method}")),
-    };
+    match method {
+        "initialize" => {
+            // Negotiate protocol version from client's requested version
+            let client_version = params
+                .as_ref()
+                .and_then(|p| p.get("protocolVersion"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("2025-03-26");
+            let negotiated = negotiate_version(client_version);
 
-    let body_str = serde_json::to_string(&response).unwrap_or_default();
-    let mut headers = HeaderMap::new();
-    headers.insert("content-type", "application/json".parse().unwrap());
-    (StatusCode::OK, headers, body_str)
-}
+            // Generate and store a new session ID
+            let session_id = new_session_id();
+            state.sessions.write().await.insert(session_id.clone());
 
-fn handle_initialize(id: Option<Value>) -> Value {
-    serde_json::json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "result": {
-            "protocolVersion": "2025-03-26",
-            "capabilities": {
-                "tools": {
-                    "listChanged": false
+            let response = serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {
+                    "protocolVersion": negotiated,
+                    "capabilities": {
+                        "tools": {
+                            "listChanged": false
+                        }
+                    },
+                    "serverInfo": {
+                        "name": "MCP Manager — Tool Discovery",
+                        "version": env!("CARGO_PKG_VERSION")
+                    }
                 }
-            },
-            "serverInfo": {
-                "name": "MCP Manager — Tool Discovery",
-                "version": env!("CARGO_PKG_VERSION")
-            }
+            });
+            mcp_response(&response, Some(&session_id), use_sse)
         }
-    })
+        "tools/list" => {
+            let response = handle_tools_list(id);
+            mcp_response(&response, req_session.as_deref(), use_sse)
+        }
+        "tools/call" => {
+            let response = handle_tools_call(id, params, &client_id, &state).await;
+            mcp_response(&response, req_session.as_deref(), use_sse)
+        }
+        _ => {
+            let response =
+                make_error_response(id, -32601, &format!("Method not found: {method}"));
+            mcp_response(&response, req_session.as_deref(), use_sse)
+        }
+    }
 }
 
 fn handle_tools_list(id: Option<Value>) -> Value {
