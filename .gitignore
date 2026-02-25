@@ -21,3 +21,6 @@ Thumbs.db
 *.log
 
 docs/plans
+
+# Worktrees
+.worktrees/
