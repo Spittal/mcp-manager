@@ -1,18 +1,16 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import { useMemoriesStore } from '@/stores/memories';
-import { useMemorySearch } from '@/composables/useMemorySearch';
 import type { MemoryItem } from '@/types/memory';
 
 const store = useMemoriesStore();
-const { search, addTopicFilter, addEntityFilter, clearFilters } = useMemorySearch();
 
 let debounceTimer: ReturnType<typeof setTimeout>;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
 const scrollContainer = ref<HTMLElement | null>(null);
 
 async function searchAndCheckIndexing() {
-  await search();
+  await store.search();
 
   // If the store has the indexing flag (set by Data Management after import/format),
   // keep retrying until results appear, then clear the flag
@@ -30,7 +28,7 @@ function onScroll(e: Event) {
   if (!store.hasMore || store.loading) return;
   const el = e.target as HTMLElement;
   if (el.scrollTop + el.clientHeight >= el.scrollHeight - 100) {
-    search(true);
+    store.loadMore();
   }
 }
 
@@ -38,7 +36,7 @@ function onQueryInput() {
   clearTimeout(debounceTimer);
   clearTimeout(retryTimer);
   store.indexing = false;
-  debounceTimer = setTimeout(() => search(), 300);
+  debounceTimer = setTimeout(() => store.search(), 300);
 }
 
 function selectMemory(m: MemoryItem) {
@@ -47,25 +45,6 @@ function selectMemory(m: MemoryItem) {
 
 function closeDetail() {
   store.selectedMemory = null;
-}
-
-function toggleType(type: string) {
-  if (store.filters.memoryType === type) {
-    const { memoryType: _, ...rest } = store.filters;
-    store.filters = rest;
-  } else {
-    store.filters = { ...store.filters, memoryType: type };
-  }
-}
-
-function removeTopic(topic: string) {
-  const topics = (store.filters.topics ?? []).filter((t) => t !== topic);
-  store.filters = { ...store.filters, topics: topics.length ? topics : undefined };
-}
-
-function removeEntity(entity: string) {
-  const entities = (store.filters.entities ?? []).filter((e) => e !== entity);
-  store.filters = { ...store.filters, entities: entities.length ? entities : undefined };
 }
 
 function formatRelativeTime(iso: string): string {
@@ -96,12 +75,6 @@ const typeColors: Record<string, string> = {
   episodic: 'bg-status-connecting text-surface-0',
   message: 'bg-status-connected text-surface-0',
 };
-
-watch(() => store.filters, () => {
-  clearTimeout(retryTimer);
-  store.indexing = false;
-  search();
-}, { deep: true });
 
 onMounted(() => {
   searchAndCheckIndexing();
@@ -138,7 +111,7 @@ onUnmounted(() => {
             :class="store.filters.memoryType === type
               ? typeColors[type]
               : 'border-border text-text-muted hover:border-border-active hover:text-text-secondary'"
-            @click="toggleType(type)"
+            @click="store.toggleTypeFilter(type)"
           >
             {{ type }}
           </button>
@@ -149,7 +122,7 @@ onUnmounted(() => {
             v-for="t in store.filters.topics"
             :key="t"
             class="rounded-full border border-border px-2 py-0.5 text-[10px] text-text-secondary hover:border-status-error hover:text-status-error"
-            @click="removeTopic(t)"
+            @click="store.removeTopic(t)"
           >
             {{ t }} &times;
           </button>
@@ -159,7 +132,7 @@ onUnmounted(() => {
             v-for="e in store.filters.entities"
             :key="e"
             class="rounded-full border border-accent/40 px-2 py-0.5 text-[10px] text-accent hover:border-status-error hover:text-status-error"
-            @click="removeEntity(e)"
+            @click="store.removeEntity(e)"
           >
             {{ e }} &times;
           </button>
@@ -167,7 +140,7 @@ onUnmounted(() => {
         <button
           v-if="store.filters.memoryType || store.filters.topics?.length || store.filters.entities?.length"
           class="text-[11px] text-text-muted hover:text-text-secondary underline"
-          @click="clearFilters"
+          @click="store.clearFilters"
         >
           Clear filters
         </button>
@@ -213,7 +186,7 @@ onUnmounted(() => {
                 v-for="t in m.topics"
                 :key="'t-' + t"
                 class="rounded-full border border-border px-1.5 py-0 text-[10px] text-text-muted cursor-pointer hover:border-accent hover:text-accent"
-                @click.stop="addTopicFilter(t)"
+                @click.stop="store.addTopicFilter(t)"
               >
                 {{ t }}
               </span>
@@ -221,7 +194,7 @@ onUnmounted(() => {
                 v-for="e in m.entities"
                 :key="'e-' + e"
                 class="rounded-full border border-accent/30 px-1.5 py-0 text-[10px] text-accent/70 cursor-pointer hover:border-accent hover:text-accent"
-                @click.stop="addEntityFilter(e)"
+                @click.stop="store.addEntityFilter(e)"
               >
                 {{ e }}
               </span>

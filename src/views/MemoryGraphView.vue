@@ -3,12 +3,10 @@ import { onMounted, onUnmounted, reactive, ref, computed } from 'vue';
 import { ForceLayout } from 'v-network-graph/lib/force-layout';
 import type { EventHandlers } from 'v-network-graph';
 import { useMemoriesStore } from '@/stores/memories';
-import { useMemorySearch } from '@/composables/useMemorySearch';
 import { useMemoryGraph } from '@/composables/useMemoryGraph';
 import type { MemoryItem } from '@/types/memory';
 
 const store = useMemoriesStore();
-const { search } = useMemorySearch();
 const { nodes, edges, nodeColor, TYPE_COLORS } = useMemoryGraph();
 
 const selectedNodeId = ref<string | null>(null);
@@ -74,9 +72,9 @@ function formatDate(iso: string): string {
 let pollTimer: ReturnType<typeof setInterval>;
 
 onMounted(() => {
-  if (!store.items.length) search();
+  if (!store.items.length) store.search();
   pollTimer = setInterval(() => {
-    if (!store.loading) search();
+    if (!store.loading) store.search();
   }, 10000);
 });
 
