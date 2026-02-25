@@ -1,6 +1,6 @@
 {
   "name": "mcp-manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Native macOS app for managing MCP servers",
   "type": "module",
   "scripts": {

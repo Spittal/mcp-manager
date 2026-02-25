@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicklasoverworlds/tauri-settings/master/schemas/tauri-config-v2.json",
   "productName": "MCP Manager",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "identifier": "com.mcpmanager.app",
   "build": {
     "frontendDist": "../dist",

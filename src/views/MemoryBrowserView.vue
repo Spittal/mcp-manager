@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { onMounted, onUnmounted } from 'vue';
 import { useMemoriesStore } from '@/stores/memories';
 import type { MemoryItem } from '@/types/memory';
 
@@ -7,8 +7,6 @@ const store = useMemoriesStore();
 
 let debounceTimer: ReturnType<typeof setTimeout>;
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
-const scrollContainer = ref<HTMLElement | null>(null);
-
 async function searchAndCheckIndexing() {
   await store.search();
 
@@ -147,7 +145,7 @@ onUnmounted(() => {
       </div>
 
       <!-- Results -->
-      <div ref="scrollContainer" class="flex-1 overflow-y-auto" @scroll="onScroll">
+      <div class="flex-1 overflow-y-auto" @scroll="onScroll">
         <div v-if="store.indexing" class="py-12 text-center space-y-2">
           <span class="mx-auto block h-1.5 w-1.5 animate-pulse rounded-full bg-accent" />
           <p class="text-xs text-text-muted">Processing memories...</p>
