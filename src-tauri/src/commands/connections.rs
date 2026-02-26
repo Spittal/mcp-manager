@@ -159,6 +159,9 @@ pub async fn disconnect_server(
 
     crate::tray::rebuild_tray_menu(&app);
 
+    // Notify SSE clients — tool list is now empty for this server
+    crate::mcp::proxy::notify_if_tools_changed(&app, &id, &[]).await;
+
     // Update integration configs so AI tools no longer see this server
     let proxy_state = app.state::<ProxyState>();
     let port = proxy_state.port().await;
@@ -413,6 +416,9 @@ async fn finalize_connection(
     );
 
     crate::tray::rebuild_tray_menu(app);
+
+    // Notify SSE clients only if the tool list actually changed
+    crate::mcp::proxy::notify_if_tools_changed(app, &id, &tools).await;
 
     // Update integration configs so AI tools see this server
     let proxy_state = app.state::<ProxyState>();

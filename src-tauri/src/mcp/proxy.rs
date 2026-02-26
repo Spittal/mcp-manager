@@ -71,6 +71,52 @@ impl ProxyState {
 #[derive(Clone)]
 pub struct NotifySender(pub broadcast::Sender<String>);
 
+/// Tracks a hash of the tool name list per endpoint.
+/// Used to determine whether `notifications/tools/list_changed` should actually fire.
+pub struct ToolListHashes(pub RwLock<HashMap<String, u64>>);
+
+impl ToolListHashes {
+    pub fn new() -> Self {
+        Self(RwLock::new(HashMap::new()))
+    }
+}
+
+/// Compute a deterministic hash of sorted tool names for change detection.
+pub fn hash_tool_names(tools: &[crate::state::McpTool]) -> u64 {
+    let mut names: Vec<&str> = tools.iter().map(|t| t.name.as_str()).collect();
+    names.sort();
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    names.hash(&mut hasher);
+    hasher.finish()
+}
+
+/// Check if the tool list for a server has changed, and notify SSE clients if so.
+/// Call this after connect/disconnect updates the connection state.
+pub async fn notify_if_tools_changed(
+    app: &AppHandle,
+    server_id: &str,
+    new_tools: &[crate::state::McpTool],
+) {
+    let new_hash = hash_tool_names(new_tools);
+
+    if let Some(hashes) = app.try_state::<ToolListHashes>() {
+        let mut map = hashes.0.write().await;
+        let old_hash = map.get(server_id).copied();
+
+        if old_hash == Some(new_hash) {
+            // Tool list hasn't actually changed — don't notify
+            return;
+        }
+
+        map.insert(server_id.to_string(), new_hash);
+    }
+
+    // Tool list genuinely changed — notify SSE clients
+    if let Some(sender) = app.try_state::<NotifySender>() {
+        let _ = sender.0.send(server_id.to_string());
+    }
+}
+
 /// Shared state passed into axum handlers.
 #[derive(Clone)]
 pub(crate) struct ProxyAppState {
@@ -86,8 +132,9 @@ pub async fn start_proxy(
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let (notify_tx, _) = broadcast::channel::<String>(64);
 
-    // Manage the sender as Tauri state so connections.rs can push notifications
+    // Manage the sender and hash tracker as Tauri state so connections.rs can push notifications
     app_handle.manage(NotifySender(notify_tx.clone()));
+    app_handle.manage(ToolListHashes::new());
 
     let state = ProxyAppState {
         app_handle: app_handle.clone(),
@@ -263,7 +310,7 @@ async fn handle_mcp_post(
                     "protocolVersion": negotiated,
                     "capabilities": {
                         "tools": {
-                            "listChanged": false
+                            "listChanged": true
                         }
                     },
                     "serverInfo": {
