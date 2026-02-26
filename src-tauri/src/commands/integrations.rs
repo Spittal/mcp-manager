@@ -834,6 +834,19 @@ fn write_cli_config(app: &AppHandle, port: u16, tool_id: &str) -> Result<(), App
     // Remove existing proxy entry first (ignore errors — may not exist)
     let _ = run_claude_mcp(&["remove", "--scope", "user", "mcp-manager"]);
 
+    // Remove non-proxy entries that were imported into MCP Manager.
+    // Reading .claude.json to find them (same McpServers format).
+    let home = home_dir()?;
+    let config_path = home.join(".claude.json");
+    let (_, _, existing) = parse_mcp_servers(&config_path);
+    for server in &existing {
+        info!(
+            "Removing imported server '{}' from Claude Code config",
+            server.name
+        );
+        let _ = run_claude_mcp(&["remove", "--scope", "user", &server.name]);
+    }
+
     for (name, url) in &entries {
         let json = serde_json::json!({
             "type": "http",
@@ -1092,7 +1105,7 @@ fn write_mcp_servers_config(
 ) -> Result<(), AppError> {
     let entries = connected_proxy_urls(app, port, tool_id);
 
-    // Read existing config to preserve other top-level keys and non-proxy MCP servers
+    // Read existing config to preserve other top-level keys (but replace mcpServers entirely)
     let mut config = if path.exists() {
         let content = std::fs::read_to_string(path)?;
         serde_json::from_str::<serde_json::Value>(&content).unwrap_or(serde_json::json!({}))
@@ -1100,19 +1113,10 @@ fn write_mcp_servers_config(
         serde_json::json!({})
     };
 
-    // Start from existing mcpServers, removing old proxy entries but keeping user-added ones
-    let mut mcp_servers = config
-        .get("mcpServers")
-        .and_then(|v| v.as_object())
-        .cloned()
-        .unwrap_or_default();
-
-    mcp_servers.retain(|key, value| {
-        let url = value.get("url").and_then(|u| u.as_str()).unwrap_or("");
-        !(key == "mcp-manager" || is_proxy_url(url))
-    });
-
-    // Add our current entries
+    // Replace mcpServers with only our proxy entries.
+    // Imported servers are now managed by MCP Manager and proxied through it —
+    // keeping originals would cause duplicate connections from the AI tool.
+    let mut mcp_servers = serde_json::Map::new();
     for (name, url) in entries {
         mcp_servers.insert(name, serde_json::json!({ "type": "http", "url": url }));
     }
