@@ -44,7 +44,7 @@ const router = createRouter({
       component: () => import('./views/AddSkillView.vue'),
     },
     {
-      path: '/skills/:id',
+      path: '/skills/:id(.+)',
       name: 'skill-detail',
       component: () => import('./views/SkillDetailView.vue'),
     },
@@ -59,7 +59,7 @@ const router = createRouter({
       component: () => import('./views/AddPluginView.vue'),
     },
     {
-      path: '/plugins/:id',
+      path: '/plugins/:id(.+)',
       name: 'plugin-detail',
       component: () => import('./views/PluginDetailView.vue'),
     },
