@@ -179,6 +179,14 @@ onMounted(() => {
               </div>
             </div>
 
+            <!-- Cursor quirk notice -->
+            <div v-if="tool.id === 'cursor' && tool.enabled" class="border-t border-border/50 px-3 py-2">
+              <p class="text-[11px] text-text-muted leading-relaxed">
+                <span class="font-medium text-text-secondary">Note:</span>
+                After restarting Cursor you may need to toggle each MCP server off and on in Cursor's settings for them to reconnect.
+              </p>
+            </div>
+
             <!-- Overwrite warning -->
             <div v-if="confirmingId === tool.id && hasOverwrites(tool)" class="border-t border-border/50 px-3 py-2">
               <p class="text-[11px] text-status-connecting">
